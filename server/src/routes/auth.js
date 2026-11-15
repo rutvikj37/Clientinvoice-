@@ -5,7 +5,13 @@ const { signToken, requireAuth, requireAdmin } = require('../middleware/auth');
 
 const publicUser = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, company_id: u.company_id });
 
+// Public sign-up is allowed only for the very first account, unless ALLOW_REGISTRATION=true.
+// After that, admins add their team from Settings → Team.
+const registrationOpen = () => process.env.ALLOW_REGISTRATION === 'true' || !db.prepare('SELECT 1 FROM users LIMIT 1').get();
+router.get('/registration', (req, res) => res.json({ open: registrationOpen() }));
+
 router.post('/register', (req, res) => {
+  if (!registrationOpen()) return res.status(403).json({ error: 'Sign-up is closed. Ask your admin to add you from Settings → Team.' });
   const { name, email, password, company_name } = req.body || {};
   if (!name || !email || !password || !company_name) return res.status(400).json({ error: 'Name, company, email and password are required' });
   if (String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -21,11 +27,25 @@ router.post('/register', (req, res) => {
   res.json({ token: signToken(user), user: publicUser(user) });
 });
 
+// simple brute-force protection: 10 failed logins per email+IP per 15 minutes
+const failures = new Map();
+const WINDOW = 15 * 60 * 1000;
+setInterval(() => { const now = Date.now(); for (const [k, v] of failures) if (now - v.first > WINDOW) failures.delete(k); }, 60 * 1000).unref();
+
 router.post('/login', (req, res) => {
   const { email, password } = req.body || {};
+  const key = `${String(email || '').toLowerCase()}|${req.ip}`;
+  const f = failures.get(key);
+  if (f && f.count >= 10 && Date.now() - f.first < WINDOW)
+    return res.status(429).json({ error: 'Too many failed attempts. Try again in 15 minutes.' });
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(String(email || '').trim().toLowerCase());
-  if (!user || !bcrypt.compareSync(String(password || ''), user.password_hash))
+  if (!user || !bcrypt.compareSync(String(password || ''), user.password_hash)) {
+    const cur = failures.get(key);
+    if (!cur || Date.now() - cur.first > WINDOW) failures.set(key, { count: 1, first: Date.now() });
+    else cur.count++;
     return res.status(401).json({ error: 'Invalid email or password' });
+  }
+  failures.delete(key);
   res.json({ token: signToken(user), user: publicUser(user) });
 });
 

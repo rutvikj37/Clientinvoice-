@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from '../api.js';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 
@@ -8,6 +9,8 @@ export default function Login({ register }) {
   const [f, setF] = useState({ name: '', company_name: '', email: '', password: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [regOpen, setRegOpen] = useState(true);
+  useEffect(() => { api.get('/auth/registration').then((r) => setRegOpen(r.open)).catch(() => {}); }, []);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
   const submit = async (e) => {
@@ -46,7 +49,7 @@ export default function Login({ register }) {
         <label className="field"><span className="field-label">Password</span><input type="password" required minLength={6} autoComplete={register ? 'new-password' : 'current-password'} value={f.password} onChange={set('password')} /></label>
         <button className="btn btn-primary btn-block" disabled={busy}>{busy ? 'Please wait…' : register ? 'Create account' : 'Sign in'}</button>
         <p className="muted center">
-          {register ? <>Already have an account? <Link to="/login">Sign in</Link></> : <>New here? <Link to="/register">Create an account</Link></>}
+          {register ? <>Already have an account? <Link to="/login">Sign in</Link></> : regOpen ? <>New here? <Link to="/register">Create an account</Link></> : <>Need access? Ask your admin to add you.</>}
         </p>
       </form>
     </div>

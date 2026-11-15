@@ -1,7 +1,12 @@
 const jwt = require('jsonwebtoken');
 const { db } = require('../db');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret-in-production';
+const DEFAULT_SECRET = 'change-this-secret-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_SECRET;
+if (process.env.NODE_ENV === 'production' && (JWT_SECRET === DEFAULT_SECRET || JWT_SECRET.length < 32)) {
+  console.error('FATAL: set JWT_SECRET (32+ random characters) in server/.env before running in production.');
+  process.exit(1);
+}
 
 function signToken(user) {
   return jwt.sign({ uid: user.id, cid: user.company_id }, JWT_SECRET, { expiresIn: '7d' });

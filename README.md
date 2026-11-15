@@ -34,15 +34,31 @@ npm run dev:server           # API on http://localhost:4000
 npm run dev:client           # UI on http://localhost:5173 (proxies /api)
 ```
 
-## Production
+## Deploy on a VPS (Ubuntu 22.04 / 24.04, Debian 12)
+
+1. Point your domain's **A record** to the VPS IP (for example `invoice.yourcompany.com`).
+2. SSH into the VPS and run:
 
 ```bash
-npm run install:all
-npm run build                # builds client/dist, served by the API server
-JWT_SECRET=... PUBLIC_URL=https://your-domain npm start
+curl -fsSL https://raw.githubusercontent.com/rutvikj37/Clientinvoice-/main/deploy/setup-vps.sh -o setup.sh
+sudo DOMAIN=invoice.yourcompany.com EMAIL=you@yourcompany.com bash setup.sh
 ```
 
-Data (SQLite DB + uploaded logos) lives in `server/data/`, or `DATA_DIR`. Back up that folder.
+This installs Node.js 22, builds the app, runs it as a `systemd` service (auto-restart and start on boot) behind **Nginx**, gets a free **HTTPS** certificate, enables the firewall and sets up **daily backups** to `/var/backups/clientinvoice` (kept 14 days). A random `JWT_SECRET` is generated in `/opt/clientinvoice/server/.env`.
+
+No domain yet? Run `sudo bash setup.sh` and the app is served on `http://<server-ip>`. Run it again later with `DOMAIN=` and `EMAIL=` to add HTTPS.
+Private repo? Add `GITHUB_TOKEN=<read-only token>` to the command.
+
+3. Open the site and **Create an account**. This first user becomes the admin, and public sign-up then closes; add staff from **Settings → Team**. To keep sign-up open, set `ALLOW_REGISTRATION=true` in `server/.env`.
+
+| Task | Command |
+|---|---|
+| Update to latest code | `sudo bash /opt/clientinvoice/deploy/update.sh` |
+| Logs | `journalctl -u clientinvoice -f` |
+| Restart | `sudo systemctl restart clientinvoice` |
+| Manual backup | `sudo /etc/cron.daily/clientinvoice-backup` |
+
+Data (SQLite DB + uploaded logos) lives in `/var/lib/clientinvoice`.
 
 ## Excel bulk upload: columns
 
