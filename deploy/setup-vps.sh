@@ -59,10 +59,10 @@ log "Getting the code ($BRANCH)"
 CLONE_URL="$REPO"
 if [ -n "${GITHUB_TOKEN:-}" ]; then CLONE_URL="${REPO/https:\/\//https://x-access-token:${GITHUB_TOKEN}@}"; fi
 if [ -d "$APP_DIR/.git" ]; then
-  git -C "$APP_DIR" fetch "$CLONE_URL" "$BRANCH" && git -C "$APP_DIR" reset --hard FETCH_HEAD
+  git -c safe.directory="$APP_DIR" -C "$APP_DIR" fetch "$CLONE_URL" "$BRANCH" && git -c safe.directory="$APP_DIR" -C "$APP_DIR" reset --hard FETCH_HEAD
 else
   rm -rf "$APP_DIR" && git clone --branch "$BRANCH" "$CLONE_URL" "$APP_DIR"
-  git -C "$APP_DIR" remote set-url origin "$REPO"   # never keep the token on disk
+  git -c safe.directory="$APP_DIR" -C "$APP_DIR" remote set-url origin "$REPO"   # never keep the token on disk
 fi
 
 log "Configuring server/.env"

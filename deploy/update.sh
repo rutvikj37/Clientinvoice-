@@ -5,10 +5,10 @@ set -euo pipefail
 [ -x /opt/node24/bin/node ] && export PATH="/opt/node24/bin:$PATH"
 APP_DIR=/opt/clientinvoice; APP_USER=clientinvoice; BRANCH="${BRANCH:-main}"
 [ "$(id -u)" -eq 0 ] || { echo "Run with sudo"; exit 1; }
-REPO=$(git -C "$APP_DIR" remote get-url origin)
+REPO=$(git -c safe.directory="$APP_DIR" -C "$APP_DIR" remote get-url origin)
 URL="$REPO"; [ -n "${GITHUB_TOKEN:-}" ] && URL="${REPO/https:\/\//https://x-access-token:${GITHUB_TOKEN}@}"
 echo "==> Backing up database"; /etc/cron.daily/clientinvoice-backup || true
-echo "==> Pulling $BRANCH"; git -C "$APP_DIR" fetch "$URL" "$BRANCH" && git -C "$APP_DIR" reset --hard FETCH_HEAD
+echo "==> Pulling $BRANCH"; git -c safe.directory="$APP_DIR" -C "$APP_DIR" fetch "$URL" "$BRANCH" && git -c safe.directory="$APP_DIR" -C "$APP_DIR" reset --hard FETCH_HEAD
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 echo "==> Installing & building"
 sudo -u "$APP_USER" -H env PATH="$PATH" bash -c "cd '$APP_DIR/server' && npm ci --omit=dev --no-audit --no-fund"
