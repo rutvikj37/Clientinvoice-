@@ -1,31 +1,30 @@
-import { useEffect, useState } from 'react';
-import { api } from '../api.js';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 
-export default function Login({ register }) {
-  const { login, register: doRegister } = useAuth();
+export default function Login() {
+  const { login } = useAuth();
   const nav = useNavigate();
-  const [f, setF] = useState({ name: '', company_name: '', email: '', password: '' });
+  const [f, setF] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [regOpen, setRegOpen] = useState(true);
-  useEffect(() => { api.get('/auth/registration').then((r) => setRegOpen(r.open)).catch(() => {}); }, []);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
   const submit = async (e) => {
     e.preventDefault();
     setError(''); setBusy(true);
     try {
-      if (register) { await doRegister(f); nav('/settings?welcome=1'); }
-      else { await login(f.email, f.password); nav('/'); }
+      await login(f.email, f.password); nav('/');
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
 
   return (
     <div className="auth-page">
       <div className="auth-side">
-        <div className="auth-brand">FactoryBill</div>
+        <div className="auth-brand">
+          <img src="/logo.jpg" alt="MotionCrest Hydraulics" />
+        </div>
+        <p className="auth-tagline">Rising to power. Moving the world.</p>
         <h2>Invoicing, purchase orders and stock for manufacturers.</h2>
         <ul>
           <li>GST invoices with CGST / SGST / IGST</li>
@@ -36,21 +35,15 @@ export default function Login({ register }) {
         </ul>
       </div>
       <form className="auth-card" onSubmit={submit}>
-        <h1>{register ? 'Create your account' : 'Sign in'}</h1>
-        <p className="muted">{register ? 'Set up your company in a minute.' : 'Welcome back. Enter your email and password.'}</p>
+        <div className="auth-card-brand">
+          <img src="/logo.jpg" alt="MotionCrest Hydraulics" />
+        </div>
+        <h1>Sign in</h1>
+        <p className="muted">Welcome back. Enter your email and password.</p>
         {error && <div className="alert alert-error">{error}</div>}
-        {register && (
-          <>
-            <label className="field"><span className="field-label">Your name</span><input required value={f.name} onChange={set('name')} /></label>
-            <label className="field"><span className="field-label">Company name</span><input required value={f.company_name} onChange={set('company_name')} /></label>
-          </>
-        )}
         <label className="field"><span className="field-label">Email</span><input type="email" required autoComplete="email" value={f.email} onChange={set('email')} /></label>
-        <label className="field"><span className="field-label">Password</span><input type="password" required minLength={6} autoComplete={register ? 'new-password' : 'current-password'} value={f.password} onChange={set('password')} /></label>
-        <button className="btn btn-primary btn-block" disabled={busy}>{busy ? 'Please wait…' : register ? 'Create account' : 'Sign in'}</button>
-        <p className="muted center">
-          {register ? <>Already have an account? <Link to="/login">Sign in</Link></> : regOpen ? <>New here? <Link to="/register">Create an account</Link></> : <>Need access? Ask your admin to add you.</>}
-        </p>
+        <label className="field"><span className="field-label">Password</span><input type="password" required minLength={6} autoComplete="current-password" value={f.password} onChange={set('password')} /></label>
+        <button className="btn btn-primary btn-block" disabled={busy}>{busy ? 'Please wait…' : 'Sign in'}</button>
       </form>
     </div>
   );

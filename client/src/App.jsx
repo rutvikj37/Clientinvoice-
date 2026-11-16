@@ -10,21 +10,32 @@ import BulkUpload from './pages/BulkUpload.jsx';
 import Parties from './pages/Parties.jsx';
 import Inventory from './pages/Inventory.jsx';
 import Settings from './pages/Settings.jsx';
+import {
+  IconDashboard,
+  IconQuotation,
+  IconInvoice,
+  IconUpload,
+  IconCustomers,
+  IconPurchaseOrder,
+  IconVendors,
+  IconInventory,
+  IconSettings,
+} from './components/Icons.jsx';
 
 const NAV = [
-  { to: '/', label: 'Dashboard', icon: '▦', end: true },
+  { to: '/', label: 'Dashboard', icon: IconDashboard, end: true },
   { section: 'Sales' },
-  { to: '/quotations', label: 'Quotations', icon: '📝' },
-  { to: '/invoices', label: 'Invoices', icon: '🧾' },
-  { to: '/bulk-upload', label: 'Bulk upload (Excel)', icon: '⇪' },
-  { to: '/customers', label: 'Customers', icon: '👥' },
+  { to: '/quotations', label: 'Quotations', icon: IconQuotation },
+  { to: '/invoices', label: 'Invoices', icon: IconInvoice },
+  { to: '/bulk-upload', label: 'Bulk upload (Excel)', icon: IconUpload },
+  { to: '/customers', label: 'Customers', icon: IconCustomers },
   { section: 'Purchase' },
-  { to: '/purchase-orders', label: 'Purchase orders', icon: '📦' },
-  { to: '/vendors', label: 'Vendors', icon: '🏭' },
+  { to: '/purchase-orders', label: 'Purchase orders', icon: IconPurchaseOrder },
+  { to: '/vendors', label: 'Vendors', icon: IconVendors },
   { section: 'Stock' },
-  { to: '/inventory', label: 'Inventory', icon: '▤' },
+  { to: '/inventory', label: 'Inventory', icon: IconInventory },
   { section: 'Setup' },
-  { to: '/settings', label: 'Company settings', icon: '⚙' },
+  { to: '/settings', label: 'Company settings', icon: IconSettings },
 ];
 
 function Layout({ children }) {
@@ -32,17 +43,37 @@ function Layout({ children }) {
   const [open, setOpen] = useState(false);
   const loc = useLocation();
   useEffect(() => setOpen(false), [loc.pathname]);
+  useEffect(() => {
+    document.body.classList.toggle('nav-open', open);
+    return () => document.body.classList.remove('nav-open');
+  }, [open]);
   return (
-    <div className="shell">
+    <div className={`shell ${open ? 'nav-open' : ''}`}>
       <aside className={`sidebar ${open ? 'open' : ''}`}>
         <div className="brand">
-          {company?.logo_path ? <img src={`/api/uploads/${company.logo_path}`} alt="" /> : <div className="brand-mark">{(company?.name || 'F')[0]}</div>}
-          <div><div className="brand-name">{company?.name || 'FactoryBill'}</div><div className="brand-sub">Invoicing · PO · Stock</div></div>
+          {company?.logo_path
+            ? <img src={`/api/uploads/${company.logo_path}`} alt={company?.name || 'Company logo'} className="brand-logo" />
+            : (
+              <>
+                <div className="brand-mark">{(company?.name || 'M')[0]}</div>
+                <div>
+                  <div className="brand-name">{company?.name || 'MotionCrest'}</div>
+                  <div className="brand-sub">Invoicing · PO · Stock</div>
+                </div>
+              </>
+            )}
         </div>
         <nav>
-          {NAV.map((n, i) => n.section
-            ? <div key={i} className="nav-section">{n.section}</div>
-            : <NavLink key={n.to} to={n.to} end={n.end} className="nav-link"><span className="nav-icon">{n.icon}</span>{n.label}</NavLink>)}
+          {NAV.map((n, i) => {
+            if (n.section) return <div key={i} className="nav-section">{n.section}</div>;
+            const Icon = n.icon;
+            return (
+              <NavLink key={n.to} to={n.to} end={n.end} className="nav-link">
+                <span className="nav-icon" aria-hidden="true"><Icon /></span>
+                {n.label}
+              </NavLink>
+            );
+          })}
         </nav>
         <div className="sidebar-foot">
           <div className="user"><div className="avatar">{user?.name?.[0]}</div><div><div>{user?.name}</div><div className="muted small">{user?.role}</div></div></div>
@@ -51,7 +82,10 @@ function Layout({ children }) {
       </aside>
       {open && <div className="scrim" onClick={() => setOpen(false)} />}
       <main className="main">
-        <div className="topbar"><button className="icon-btn" onClick={() => setOpen(true)} aria-label="Menu">☰</button><span>{company?.name}</span></div>
+        <div className="topbar">
+          <button className="icon-btn" onClick={() => setOpen(true)} aria-label="Menu">☰</button>
+          <span className="topbar-title">{company?.name}</span>
+        </div>
         <div className="content">{children}</div>
       </main>
     </div>
@@ -65,7 +99,7 @@ export default function App() {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Login register />} />
+        <Route path="/register" element={<Navigate to="/login" replace />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );

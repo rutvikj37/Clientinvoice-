@@ -1,6 +1,11 @@
 /**
- * PDF layout modelled on the client's PO / Quotation Excel templates:
- *  company block + logo/title | document meta | party details | item grid with CGST/SGST (or IGST) | totals | words | remarks | conditions
+ * PDF layout modelled on the client's Quotation Excel template
+ * (Quptation Template.xlsx / Quotation_Template.xlsx):
+ *  company + logo/title | meta | Details of Customer | item grid
+ *  (HSN, Qty, UOM, Unit Price, Disc, Price Af Disc, CGST/SGST or IGST) |
+ *  Sub Total / GST / Total | Amount in Words | Remarks | General Conditions
+ *
+ * Invoices and quotations share this layout; POs keep the same grid with vendor labels.
  */
 const fs = require('fs');
 const path = require('path');
@@ -58,28 +63,38 @@ function kvRows(doc, x, y, rows, { labelW = 95, w = 260, size = 8 } = {}) {
 
 function renderHeader(doc, kind, company, d) {
   let y = 28;
-  // --- top block: company left, logo + title right
-  const leftW = 330;
-  const topH = 92;
+  // Template row 1: company left (A–H), logo + document title right (N–Q)
+  const leftW = 340;
+  const topH = 100;
   box(doc, L, y, W, topH);
   doc.moveTo(L + leftW, y).lineTo(L + leftW, y + topH).stroke();
-  doc.font('Helvetica-Bold').fontSize(12).fillColor(BLUE).text((company.legal_name || company.name || '').toUpperCase(), L + 6, y + 6, { width: leftW - 12 });
-  doc.font('Helvetica').fontSize(7.8).fillColor('#000');
-  const addr = [company.address, [company.city, company.state].filter(Boolean).join(' ') + (company.pincode ? ` - ${company.pincode}` : '')].filter((s) => s && s.trim()).join(', ');
+
+  // Company block — matches Excel A1 rich text structure
+  doc.font('Helvetica-Bold').fontSize(11).fillColor(BLUE)
+    .text((company.legal_name || company.name || '').toUpperCase(), L + 6, y + 6, { width: leftW - 12 });
+  doc.font('Helvetica').fontSize(8).fillColor('#000');
+  const cityLine = [company.city, company.state].filter(Boolean).join(' ')
+    + (company.pincode ? ` - ${company.pincode}` : '');
+  const addr = [company.address, cityLine].filter((s) => s && String(s).trim()).join(', ');
   if (addr) doc.text(addr, { width: leftW - 12 });
   if (company.email) doc.text(`Email - ${company.email}`, { width: leftW - 12 });
   if (company.phone) doc.text(`Phone - ${company.phone}`, { width: leftW - 12 });
   const ids = [company.pan && `PAN - ${company.pan}`, company.gstin && `GST - ${company.gstin}`].filter(Boolean).join(' & ');
-  if (ids) doc.font('Helvetica-Bold').text(ids, { width: leftW - 12 });
+  if (ids) doc.font('Helvetica-Bold').fontSize(9).text(ids, { width: leftW - 12 });
 
-  const rx = L + leftW + 6, rw = W - leftW - 12;
+  // Logo + title (MotionCrest branding)
+  const rx = L + leftW + 4, rw = W - leftW - 8;
   const lp = logoPath(company);
-  if (lp) { try { doc.image(lp, rx + (rw - 110) / 2, y + 4, { fit: [110, 58], align: 'center' }); } catch { /* bad image */ } }
-  else doc.font('Helvetica-Bold').fontSize(14).fillColor(BLUE).text(company.name || '', rx, y + 20, { width: rw, align: 'center' });
-  doc.font('Helvetica-Bold').fontSize(14).fillColor('#000').text(TITLES[kind](company), rx, y + topH - 22, { width: rw, align: 'center' });
+  if (lp) {
+    try { doc.image(lp, rx + (rw - 120) / 2, y + 6, { fit: [120, 62], align: 'center' }); } catch { /* bad image */ }
+  } else {
+    doc.font('Helvetica-Bold').fontSize(13).fillColor(BLUE).text(company.name || '', rx, y + 22, { width: rw, align: 'center' });
+  }
+  doc.font('Helvetica-Bold').fontSize(15).fillColor('#000')
+    .text(TITLES[kind](company), rx, y + topH - 24, { width: rw, align: 'center' });
   y += topH;
 
-  // --- meta block
+  // Meta — template rows 2–6
   const half = 300;
   const companyState = company.state || STATES[company.state_code] || '';
   const companyCode = company.state_code || stateCodeFor(company.state, company.gstin) || '';
@@ -92,35 +107,52 @@ function renderHeader(doc, kind, company, d) {
   ];
   const secondDate = kind === 'quotation' ? ['Offer Validity Date', fmtDate(d.due_date)]
     : kind === 'invoice' ? ['Due Date', fmtDate(d.due_date)] : ['Delivery Date', fmtDate(d.delivery_date)];
-  const metaRight = [secondDate, ['Contact Person', d.contact_person], ['Phone No', d.contact_phone], ['Email', d.contact_email]];
-  if (kind !== 'po' && d.reference) metaRight.push([kind === 'invoice' ? 'Customer PO No.' : 'Enquiry Ref', d.reference]);
+  const metaRight = [
+    secondDate,
+    ['Contact Person', d.contact_person],
+    ['Phone No', d.contact_phone],
+    ['Email', d.contact_email],
+  ];
+  if (kind === 'invoice' && d.reference) metaRight.push(['Customer PO No.', d.reference]);
+  if (kind === 'quotation' && d.reference) metaRight.push(['Enquiry Ref', d.reference]);
   if (kind === 'po' && d.reference) metaRight.push(['Vendor Quote Ref', d.reference]);
-  const y1 = kvRows(doc, L + 6, y + 5, metaLeft, { labelW: 85, w: half - 10 });
-  const y2 = kvRows(doc, L + half + 6, y + 5, metaRight, { labelW: 92, w: W - half - 10 });
+  const y1 = kvRows(doc, L + 6, y + 5, metaLeft, { labelW: 90, w: half - 10, size: 8 });
+  const y2 = kvRows(doc, L + half + 6, y + 5, metaRight, { labelW: 100, w: W - half - 10, size: 8 });
   const metaH = Math.max(y1, y2) - y + 3;
   box(doc, L, y, W, metaH);
   doc.moveTo(L + half, y).lineTo(L + half, y + metaH).stroke();
   y += metaH;
 
-  // --- party block
+  // Party — template "Details of Customer :" (rows 7–16)
   box(doc, L, y, W, 14, HEAD_BG);
-  doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#000').text(`Details of ${PARTY_LABEL[kind]} :`, L + 6, y + 3.5);
+  doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#000')
+    .text(`Details of ${PARTY_LABEL[kind]} :`, L + 6, y + 3.5);
   y += 14;
   const p = d.party || {};
   const pState = p.state || STATES[p.state_code] || '';
   const pCode = p.state_code || stateCodeFor(p.state, p.gstin) || '';
   const partyAddr = [p.address, [p.city, p.pincode].filter(Boolean).join(' - ')].filter(Boolean).join(', ');
   const pl = kvRows(doc, L + 6, y + 5, [
-    ['Name', p.name], ['Address', partyAddr], ['State', pState], ['State Code', pCode], ['GST No.', p.gstin || ''],
-  ], { labelW: 60, w: half - 10 });
-  const rightRows = [[`${PARTY_LABEL[kind]} Code`, p.code || ''], [`${PARTY_LABEL[kind]} Name`, p.contact_person || p.name], ['Payment Terms', d.payment_terms || ''], ['Transport', d.transport || '']];
-  if (kind !== 'po' || d.delivery_date) rightRows.push(['Delivery Date', fmtDate(d.delivery_date)]);
-  if (p.phone || p.email) rightRows.push(['Contact', [p.phone, p.email].filter(Boolean).join(' / ')]);
-  const pr = kvRows(doc, L + half + 6, y + 5, rightRows, { labelW: 92, w: W - half - 10 });
+    ['Name', p.name],
+    ['Address', partyAddr],
+    ['State', pState],
+    ['State Code', pCode],
+    ['GST No.', p.gstin || ''],
+  ], { labelW: 60, w: half - 10, size: 8 });
+  // Right panel matches Excel: Code / Name / Payment Terms / Transport
+  const rightRows = [
+    [`${PARTY_LABEL[kind]} Code`, p.code || ''],
+    [`${PARTY_LABEL[kind]} Name`, p.contact_person || p.name || ''],
+    ['Payment Terms', d.payment_terms || ''],
+    ['Transport', d.transport || ''],
+  ];
+  if (d.delivery_date) rightRows.push(['Delivery Date', fmtDate(d.delivery_date)]);
+  const pr = kvRows(doc, L + half + 6, y + 5, rightRows, { labelW: 92, w: W - half - 10, size: 8 });
   const partyH = Math.max(pl, pr) - y + 3;
   box(doc, L, y, W, partyH);
   doc.moveTo(L + half, y).lineTo(L + half, y + partyH).stroke();
   y += partyH;
+
   if (kind === 'po' && d.delivery_address) {
     const h = doc.font('Helvetica').fontSize(8).heightOfString(d.delivery_address, { width: W - 100 }) + 8;
     box(doc, L, y, W, h);
@@ -132,6 +164,7 @@ function renderHeader(doc, kind, company, d) {
 }
 
 function columns(interstate) {
+  // Column set from Excel rows 17–18
   const base = [
     { key: 'sn', label: 'Sr No.', w: 22, align: 'center' },
     { key: 'code', label: 'Item Code', w: 44 },
@@ -144,10 +177,15 @@ function columns(interstate) {
     { key: 'pad', label: 'Price Af Disc', w: 40, align: 'right' },
   ];
   const tax = interstate
-    ? [{ key: 'ir', label: 'Rate', w: 34, align: 'right', group: 'IGST' }, { key: 'ia', label: 'Amt.', w: 94, align: 'right', group: 'IGST' }]
+    ? [
+      { key: 'ir', label: 'Rate', w: 34, align: 'right', group: 'IGST' },
+      { key: 'ia', label: 'Amt.', w: 94, align: 'right', group: 'IGST' },
+    ]
     : [
-      { key: 'cr', label: 'Rate', w: 24, align: 'right', group: 'CGST' }, { key: 'ca', label: 'Amt.', w: 40, align: 'right', group: 'CGST' },
-      { key: 'sr', label: 'Rate', w: 24, align: 'right', group: 'SGST' }, { key: 'sa', label: 'Amt.', w: 40, align: 'right', group: 'SGST' },
+      { key: 'cr', label: 'Rate', w: 24, align: 'right', group: 'CGST' },
+      { key: 'ca', label: 'Amt.', w: 40, align: 'right', group: 'CGST' },
+      { key: 'sr', label: 'Rate', w: 24, align: 'right', group: 'SGST' },
+      { key: 'sa', label: 'Amt.', w: 40, align: 'right', group: 'SGST' },
     ];
   return [...base, ...tax, { key: 'total', label: 'Total Amount', w: 51, align: 'right' }];
 }
@@ -188,7 +226,8 @@ function renderItems(doc, y, d) {
     const row = {
       sn: i + 1, code: it.item_code || '', desc: it.description, hsn: it.hsn || '', qty: qtyFmt(it.qty), uom: it.unit || '',
       rate: num(it.rate), disc: it.discount_pct ? `${+it.discount_pct}%` : '-', pad: num(pad),
-      cr: `${+(it.tax_rate / 2).toFixed(2)}%`, ca: num(half), sr: `${+(it.tax_rate / 2).toFixed(2)}%`, sa: num(it.tax_amount - Math.round(half * 100) / 100),
+      cr: `${+(it.tax_rate / 2).toFixed(2)}%`, ca: num(half),
+      sr: `${+(it.tax_rate / 2).toFixed(2)}%`, sa: num(it.tax_amount - Math.round(half * 100) / 100),
       ir: `${+it.tax_rate}%`, ia: num(it.tax_amount), total: num(it.amount),
     };
     const h = Math.max(...cols.map((c) => doc.heightOfString(String(row[c.key]), { width: c.w - 4 }))) + 6;
@@ -207,6 +246,7 @@ function renderItems(doc, y, d) {
 }
 
 function renderTotals(doc, y, kind, company, d) {
+  // Template totals: Sub Total, Add : CGST/SGST (or IGST), Total GST, Total
   const rows = [['Sub Total', d.taxable_total]];
   if (d.is_interstate) rows.push(['Add : IGST', d.igst]);
   else { rows.push(['Add : CGST', d.cgst]); rows.push(['Add : SGST', d.sgst]); }
@@ -220,7 +260,8 @@ function renderTotals(doc, y, kind, company, d) {
   box(doc, L, y, W, h);
   doc.moveTo(lx, y).lineTo(lx, y + h).stroke();
   doc.moveTo(lx + lw, y).lineTo(lx + lw, y + h).stroke();
-  // left side of totals: bank details for invoices, item count otherwise
+
+  // Left of totals: bank details on invoices (practical addition; Excel leaves this blank)
   doc.font('Helvetica').fontSize(7.8).fillColor('#000');
   if (kind === 'invoice' && (company.bank_name || company.bank_account)) {
     doc.font('Helvetica-Bold').text('Bank Details', L + 6, y + 4);
@@ -234,6 +275,7 @@ function renderTotals(doc, y, kind, company, d) {
     const totalQty = d.items.reduce((s, it) => s + Number(it.qty || 0), 0);
     doc.text(`Total items : ${d.items.length}     Total qty : ${qtyFmt(totalQty)}`, L + 6, y + 4, { width: 288 });
   }
+
   let yy = y;
   for (const [k, v] of rows) {
     doc.font('Helvetica-Bold').fontSize(8).text(k, lx + 6, yy + 3, { width: lw - 12 });
@@ -263,8 +305,11 @@ function textRow(doc, y, label, text, { minH = 16, bold = false } = {}) {
 function renderFooter(doc, y, kind, company, d) {
   y = textRow(doc, y, 'Amount in Words :', amountInWords(d.total, company.currency), { bold: true });
   y = textRow(doc, y, 'Remarks :', d.remarks || '');
-  const terms = d.terms ? d.terms.split(/\r?\n/).filter(Boolean).map((t) => (/^[·•\-\d]/.test(t.trim()) ? t.trim() : `· ${t.trim()}`)).join('\n') : '';
-  // General conditions (left) + signature (right)
+  const terms = d.terms
+    ? d.terms.split(/\r?\n/).filter(Boolean).map((t) => (/^[·•\-\d]/.test(t.trim()) ? t.trim() : `· ${t.trim()}`)).join('\n')
+    : '';
+  // General Conditions (left) + authorised signatory (right) — Excel is full-width conditions;
+  // signature column is kept for printable invoices/quotations/POs.
   doc.font('Helvetica').fontSize(7.8);
   const termsH = terms ? doc.heightOfString(terms, { width: 330 }) : 0;
   const h = Math.max(70, termsH + 22);
@@ -273,10 +318,15 @@ function renderFooter(doc, y, kind, company, d) {
   doc.moveTo(L + 340, y).lineTo(L + 340, y + h).stroke();
   doc.font('Helvetica-Bold').text('General Conditions :', L + 6, y + 4);
   if (terms) doc.font('Helvetica').text(terms, L + 6, y + 15, { width: 330 });
-  doc.font('Helvetica-Bold').fontSize(8).text(`For ${(company.legal_name || company.name || '').toUpperCase()}`, L + 344, y + 5, { width: W - 350, align: 'center' });
-  doc.font('Helvetica').fontSize(7.5).fillColor('#444').text('Authorised Signatory', L + 344, y + h - 13, { width: W - 350, align: 'center' });
+  doc.font('Helvetica-Bold').fontSize(8)
+    .text(`For ${(company.legal_name || company.name || '').toUpperCase()}`, L + 344, y + 5, { width: W - 350, align: 'center' });
+  doc.font('Helvetica').fontSize(7.5).fillColor('#444')
+    .text('Authorised Signatory', L + 344, y + h - 13, { width: W - 350, align: 'center' });
   y += h;
-  if (company.tagline) doc.font('Helvetica-Bold').fontSize(7).fillColor(ORANGE).text(company.tagline.toUpperCase(), L, y + 5, { width: W, align: 'center', characterSpacing: 1 });
+  if (company.tagline) {
+    doc.font('Helvetica-Bold').fontSize(7).fillColor(ORANGE)
+      .text(company.tagline.toUpperCase(), L, y + 5, { width: W, align: 'center', characterSpacing: 1 });
+  }
   if (d.status === 'draft' || d.status === 'cancelled') {
     doc.save().rotate(-30, { origin: [300, 420] }).font('Helvetica-Bold').fontSize(70).fillColor('#cc0000').opacity(0.08)
       .text(d.status.toUpperCase(), 90, 380, { width: 420, align: 'center' }).restore();

@@ -128,9 +128,10 @@ function buildHeader(kind, company, party, data, existing, user) {
     h.contact_email = h.contact_email ?? company.email ?? null;
     h.terms = h.terms ?? company[cfg.termsField] ?? null;
     if (!h.place_of_supply) {
-      h.place_of_supply = kind === 'quotation' && company.default_place_of_supply
-        ? company.default_place_of_supply
-        : [party.city, party.state || STATES[partyStateCode(party)]].filter(Boolean).join(' ') || null;
+      // Prefer company default (Quotation Template: "Ex- Works Jaipur"); else party city/state.
+      h.place_of_supply = company.default_place_of_supply
+        || [party.city, party.state || STATES[partyStateCode(party)]].filter(Boolean).join(' ')
+        || null;
     }
   }
   return h;

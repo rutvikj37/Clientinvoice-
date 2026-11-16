@@ -51,6 +51,12 @@ export default function DocView({ kind }) {
   if (error) return <div className="alert alert-error">{error}</div>;
   if (!d) return <p className="muted">Loading…</p>;
 
+  // API payloads differ by doc kind — never assume nested arrays exist
+  const payments = d.payments ?? [];
+  const items = d.items ?? [];
+  const receipts = d.receipts ?? [];
+  const activity = d.activity ?? [];
+
   const refresh = () => { reload(); setVer((v) => v + 1); };
   const act = async (path, body, msg) => {
     try { const r = await api.post(`${cfg.api}/${d.id}/${path}`, body); if (msg) toast(msg); refresh(); return r; } catch (e) { toast(e.message, 'error'); }
@@ -100,14 +106,20 @@ export default function DocView({ kind }) {
       {kind === 'po' && d.approver && <p className="muted small">Approved by {d.approver} on {fmtDate(d.approved_at)}</p>}
 
       <div className="actionbar">
-        {buttons}
+        {buttons.length > 0 && <div className="action-group">{buttons}</div>}
         <span className="spacer" />
-        <button className="btn btn-wa" disabled={!canSend(kind, d.status)} title={!canSend(kind, d.status) ? (kind === 'po' ? 'Approve the PO first' : 'Issue first') : ''} onClick={() => setSend('whatsapp')}>💬 WhatsApp</button>
-        <button className="btn" disabled={!canSend(kind, d.status)} onClick={() => setSend('email')}>✉ Email</button>
-        <button className="btn" onClick={() => download(`${cfg.api}/${d.id}/pdf?download=1`, fileName)}>⬇ PDF</button>
-        <button className="btn" onClick={async () => { const c = await api.post(`${cfg.api}/${d.id}/duplicate`); nav(`${cfg.path}/${c.id}/edit`); }}>Duplicate</button>
-        {cancelAllowed && <button className="btn btn-danger-ghost" onClick={() => setReason({ action: 'cancel', title: `Cancel this ${cfg.label.toLowerCase()}?` })}>Cancel</button>}
-        {d.status === 'draft' && <button className="btn btn-danger-ghost" onClick={async () => { if (!confirm('Delete this draft?')) return; try { await api.del(`${cfg.api}/${d.id}`); nav(cfg.path); } catch (e) { toast(e.message, 'error'); } }}>Delete</button>}
+        <div className="action-group">
+          <button className="btn btn-wa" disabled={!canSend(kind, d.status)} title={!canSend(kind, d.status) ? (kind === 'po' ? 'Approve the PO first' : 'Issue first') : ''} onClick={() => setSend('whatsapp')}>WhatsApp</button>
+          {kind !== 'invoice' && <button className="btn" disabled={!canSend(kind, d.status)} onClick={() => setSend('email')}>Email</button>}
+          <button className="btn" onClick={() => download(`${cfg.api}/${d.id}/pdf?download=1`, fileName)}>Download PDF</button>
+          <button className="btn" onClick={async () => { const c = await api.post(`${cfg.api}/${d.id}/duplicate`); nav(`${cfg.path}/${c.id}/edit`); }}>Duplicate</button>
+        </div>
+        {(cancelAllowed || d.status === 'draft') && (
+          <div className="action-group action-group-danger">
+            {cancelAllowed && <button className="btn btn-danger-ghost" onClick={() => setReason({ action: 'cancel', title: `Cancel this ${cfg.label.toLowerCase()}?` })}>Cancel</button>}
+            {d.status === 'draft' && <button className="btn btn-danger-ghost" onClick={async () => { if (!confirm('Delete this draft?')) return; try { await api.del(`${cfg.api}/${d.id}`); nav(cfg.path); } catch (e) { toast(e.message, 'error'); } }}>Delete</button>}
+          </div>
+        )}
       </div>
 
       <div className="view-grid">
@@ -116,13 +128,13 @@ export default function DocView({ kind }) {
           {kind === 'invoice' && (
             <div className="card">
               <div className="card-head"><h3>Payments</h3></div>
-              {d.payments.length === 0 ? <p className="muted small">No payments recorded.</p> : (
-                <table className="table compact"><tbody>
-                  {d.payments.map((p) => (
+              {payments.length === 0 ? <p className="muted small">No payments recorded.</p> : (
+                <div className="table-wrap"><table className="table compact"><tbody>
+                  {payments.map((p) => (
                     <tr key={p.id}><td>{fmtDate(p.paid_on)}<div className="muted small">{p.mode} {p.reference}</div></td><td className="num">{money(p.amount)}</td>
                       <td><button className="icon-btn" title="Delete payment" onClick={async () => { if (confirm('Delete this payment?')) { await api.del(`/invoices/${d.id}/payments/${p.id}`); refresh(); } }}>×</button></td></tr>
                   ))}
-                </tbody></table>
+                </tbody></table></div>
               )}
               <div className="trow"><span>Paid</span><b>{money(d.amount_paid)}</b></div>
               <div className="trow"><span>Balance</span><b>{money(d.balance)}</b></div>
@@ -131,11 +143,11 @@ export default function DocView({ kind }) {
           {kind === 'po' && (
             <div className="card">
               <div className="card-head"><h3>Receiving</h3></div>
-              <table className="table compact"><thead><tr><th>Item</th><th className="num">Ordered</th><th className="num">Received</th></tr></thead><tbody>
-                {d.items.map((it) => <tr key={it.id}><td>{it.item_code && <b>{it.item_code} </b>}{it.description}</td><td className="num">{+it.qty} {it.unit}</td><td className={`num ${it.received_qty >= it.qty ? 'text-success' : ''}`}>{+it.received_qty}</td></tr>)}
-              </tbody></table>
-              {d.receipts.map((r) => (
-                <div key={r.id} className="receipt"><b>{r.grn_no}</b> · {fmtDate(r.received_on)} · {r.user_name}<div className="muted small">{r.items.map((x) => `${x.description}: ${+x.qty} ${x.unit || ''}`).join(', ')}{r.note ? ` · ${r.note}` : ''}</div></div>
+              <div className="table-wrap"><table className="table compact"><thead><tr><th>Item</th><th className="num">Ordered</th><th className="num">Received</th></tr></thead><tbody>
+                {items.map((it) => <tr key={it.id}><td>{it.item_code && <b>{it.item_code} </b>}{it.description}</td><td className="num">{+it.qty} {it.unit}</td><td className={`num ${it.received_qty >= it.qty ? 'text-success' : ''}`}>{+it.received_qty}</td></tr>)}
+              </tbody></table></div>
+              {receipts.map((r) => (
+                <div key={r.id} className="receipt"><b>{r.grn_no}</b> · {fmtDate(r.received_on)} · {r.user_name}<div className="muted small">{(r.items || []).map((x) => `${x.description}: ${+x.qty} ${x.unit || ''}`).join(', ')}{r.note ? ` · ${r.note}` : ''}</div></div>
               ))}
             </div>
           )}
@@ -154,7 +166,9 @@ export default function DocView({ kind }) {
           <div className="card">
             <div className="card-head"><h3>Activity</h3></div>
             <ul className="activity">
-              {d.activity.map((a) => <li key={a.id}><b>{a.action.replace(/_/g, ' ')}</b>{a.detail ? ` · ${a.detail}` : ''}<div className="muted small">{a.user_name || 'System'} · {new Date(a.created_at + 'Z').toLocaleString('en-IN')}</div></li>)}
+              {activity.length === 0 ? <li className="muted small">No activity yet.</li> : activity.map((a) => (
+                <li key={a.id}><b>{a.action.replace(/_/g, ' ')}</b>{a.detail ? ` · ${a.detail}` : ''}<div className="muted small">{a.user_name || 'System'} · {new Date(a.created_at + 'Z').toLocaleString('en-IN')}</div></li>
+              ))}
             </ul>
           </div>
         </div>
@@ -179,7 +193,8 @@ function ReasonModal({ title, onClose, onSubmit }) {
 
 function ReceiveModal({ po, onClose, onSaved }) {
   const toast = useToast();
-  const [qty, setQty] = useState(Object.fromEntries(po.items.map((it) => [it.id, Math.max(0, it.qty - it.received_qty)])));
+  const poItems = po.items ?? [];
+  const [qty, setQty] = useState(Object.fromEntries(poItems.map((it) => [it.id, Math.max(0, it.qty - it.received_qty)])));
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState('');
   const save = async () => {
@@ -191,14 +206,14 @@ function ReceiveModal({ po, onClose, onSaved }) {
   return (
     <Modal title={`Receive goods · ${po.doc_no}`} onClose={onClose} wide footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" onClick={save}>Save GRN</button></>}>
       <p className="muted small">Received quantities are added to inventory for items linked to an item code.</p>
-      <table className="table compact">
+      <div className="table-wrap"><table className="table compact">
         <thead><tr><th>Item</th><th className="num">Ordered</th><th className="num">Already received</th><th className="num" style={{ width: 120 }}>Receiving now</th></tr></thead>
-        <tbody>{po.items.map((it) => (
+        <tbody>{poItems.map((it) => (
           <tr key={it.id}><td>{it.item_code && <b>{it.item_code} </b>}{it.description}{!it.product_id && <div className="muted small">Not linked to inventory</div>}</td>
             <td className="num">{+it.qty} {it.unit}</td><td className="num">{+it.received_qty}</td>
             <td><input type="number" step="any" className="num" min="0" max={it.qty - it.received_qty} value={qty[it.id]} onChange={(e) => setQty({ ...qty, [it.id]: e.target.value })} aria-label={`Receiving ${it.description}`} /></td></tr>
         ))}</tbody>
-      </table>
+      </table></div>
       <div className="form-grid">
         <Field label="Received on"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         <Field label="Note (vendor invoice / challan no.)"><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>

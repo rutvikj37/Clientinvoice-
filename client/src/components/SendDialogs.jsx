@@ -64,7 +64,7 @@ export function BulkResultModal({ result, title, onClose }) {
     <Modal title={title} onClose={onClose} wide footer={<button className="btn btn-primary" onClick={onClose}>Done</button>}>
       <p><b>{result.success}</b> succeeded{result.failed ? <>, <b className="text-danger">{result.failed}</b> failed</> : ''}.</p>
       {links.length > 0 && <p className="muted small">Click each button to open WhatsApp with the document link, then press send.</p>}
-      <table className="table compact"><tbody>
+      <div className="table-wrap"><table className="table compact"><tbody>
         {result.results.map((r) => (
           <tr key={r.id}>
             <td>{r.doc_no}</td><td>{r.party || ''}</td>
@@ -74,7 +74,7 @@ export function BulkResultModal({ result, title, onClose }) {
                 {opened[r.id] ? 'Opened ✓' : 'Open WhatsApp'}</a>)}</td>
           </tr>
         ))}
-      </tbody></table>
+      </tbody></table></div>
     </Modal>
   );
 }

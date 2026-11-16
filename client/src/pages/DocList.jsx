@@ -6,7 +6,7 @@ import { SendDocModal, BulkResultModal, PaymentModal } from '../components/SendD
 import { DOCS, canSend } from '../docs.js';
 
 const BULK = {
-  invoice: [['whatsapp', 'WhatsApp', 'btn-wa'], ['email', 'Email'], ['download', 'Download PDFs (ZIP)'], ['issue', 'Issue drafts'], ['mark-paid', 'Mark paid'], ['cancel', 'Cancel', 'btn-danger-ghost'], ['delete', 'Delete drafts', 'btn-danger-ghost']],
+  invoice: [['whatsapp', 'WhatsApp', 'btn-wa'], ['download', 'Download PDFs (ZIP)'], ['issue', 'Issue drafts'], ['mark-paid', 'Mark paid'], ['cancel', 'Cancel', 'btn-danger-ghost'], ['delete', 'Delete drafts', 'btn-danger-ghost']],
   quotation: [['whatsapp', 'WhatsApp', 'btn-wa'], ['email', 'Email'], ['download', 'Download PDFs (ZIP)'], ['convert', 'Convert to invoices'], ['delete', 'Delete drafts', 'btn-danger-ghost']],
   po: [['submit', 'Submit for approval'], ['approve', 'Approve'], ['whatsapp', 'Send WhatsApp', 'btn-wa'], ['email', 'Send email'], ['download', 'Download PDFs (ZIP)'], ['cancel', 'Cancel', 'btn-danger-ghost'], ['delete', 'Delete drafts', 'btn-danger-ghost']],
 };
@@ -56,10 +56,10 @@ export default function DocList({ kind }) {
       { label: 'Download PDF', onClick: () => download(`${cfg.api}/${r.id}/pdf?download=1`, `${cfg.label}-${r.doc_no.replace(/\//g, '_')}.pdf`) },
       '-',
       { label: 'Send on WhatsApp', disabled: !canSend(kind, r.status), onClick: () => setSend({ id: r.id, channel: 'whatsapp' }) },
-      { label: 'Send by email', disabled: !canSend(kind, r.status), onClick: () => setSend({ id: r.id, channel: 'email' }) },
+      kind !== 'invoice' && { label: 'Send by email', disabled: !canSend(kind, r.status), onClick: () => setSend({ id: r.id, channel: 'email' }) },
       '-',
       { label: 'Duplicate', onClick: () => act(async () => { const c = await api.post(`${cfg.api}/${r.id}/duplicate`); nav(`${cfg.path}/${c.id}/edit`); }) },
-    ];
+    ].filter(Boolean);
     if (kind === 'invoice') return [
       ...common.slice(0, 2),
       r.status === 'draft' && { label: 'Issue invoice', onClick: () => act(() => api.post(`/invoices/${r.id}/issue`), 'Invoice issued') },
@@ -97,7 +97,7 @@ export default function DocList({ kind }) {
     <>
       <PageHead title={cfg.plural} sub={batch ? `Showing documents from Excel upload #${batch}` : null}>
         {kind === 'invoice' && <button className="btn" onClick={() => download(`/invoices/export?${qs}`, 'invoices.xlsx')}>Export Excel</button>}
-        <Link className="btn" to={`/bulk-upload?type=${kind}`}>Bulk upload (Excel)</Link>
+        {kind === 'invoice' && <Link className="btn" to="/bulk-upload">Bulk upload (Excel)</Link>}
         <Link className="btn btn-primary" to={`${cfg.path}/new`}>+ New {cfg.label.toLowerCase()}</Link>
       </PageHead>
 
@@ -132,7 +132,7 @@ export default function DocList({ kind }) {
                 <th className="num">Amount</th>
                 {kind === 'invoice' && <th className="num">Balance</th>}
                 {kind === 'po' && <th className="num">Received</th>}
-                <th>Status</th><th>Sent</th><th></th>
+                <th>Status</th><th>Sent</th><th className="row-actions-head">Actions</th>
               </tr></thead>
               <tbody>
                 {rows.map((r) => (
@@ -150,9 +150,7 @@ export default function DocList({ kind }) {
                     <td><Badge status={r.status} overdue={r.is_overdue} />{r.is_expired && <span className="tag tag-warn">Expired</span>}</td>
                     <td className="small muted nowrap">{r.last_whatsapp_at && <span title={`WhatsApp ${r.last_whatsapp_at}`}>WA ✓ </span>}{r.last_emailed_at && <span title={`Email ${r.last_emailed_at}`}>Mail ✓</span>}</td>
                     <td className="row-actions">
-                      <button className="btn btn-sm btn-ghost" title="Send on WhatsApp" disabled={!canSend(kind, r.status)} onClick={() => setSend({ id: r.id, channel: 'whatsapp' })}>💬</button>
-                      <button className="btn btn-sm btn-ghost" title="Send by email" disabled={!canSend(kind, r.status)} onClick={() => setSend({ id: r.id, channel: 'email' })}>✉</button>
-                      <button className="btn btn-sm btn-ghost" title="View PDF" onClick={() => pdf(r)}>⎙</button>
+                      <button type="button" className="btn btn-sm btn-ghost row-quick" title="View PDF" aria-label="View PDF" onClick={() => pdf(r)}>PDF</button>
                       <ActionMenu items={rowActions(r)} />
                     </td>
                   </tr>

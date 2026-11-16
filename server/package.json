@@ -3,7 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "main": "src/index.js",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
+    "predev": "node -e \"const M=+process.versions.node.split('.')[0]; if(M<24){console.error('Node '+process.version+' detected. Use Node 24+: nvm use 24'); process.exit(1)}\"",
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "seed": "node src/seed.js"

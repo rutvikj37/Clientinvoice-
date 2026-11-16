@@ -56,27 +56,27 @@ export default function Dashboard() {
           </div>
           <div className="card-head" style={{ marginTop: 16 }}><h3>Low stock</h3><Link to="/inventory?low=1" className="small">Inventory →</Link></div>
           {data.lowStock.length === 0 ? <p className="muted">All items are above reorder level.</p> : (
-            <table className="table compact"><tbody>
+            <div className="table-wrap"><table className="table compact"><tbody>
               {data.lowStock.map((p) => <tr key={p.id}><td>{p.name}<div className="muted small">{p.sku}</div></td><td className="num"><b className="text-danger">{p.stock_qty}</b> / {p.reorder_level} {p.unit}</td></tr>)}
-            </tbody></table>
+            </tbody></table></div>
           )}
         </div>
       </div>
       <div className="grid-2">
         <div className="card">
           <div className="card-head"><h3>Recent invoices</h3><Link to="/invoices" className="small">All invoices →</Link></div>
-          <table className="table compact"><tbody>
+          <div className="table-wrap"><table className="table compact"><tbody>
             {data.recent.map((i) => (
               <tr key={i.id}><td><Link to={`/invoices/${i.id}`}>{i.doc_no}</Link><div className="muted small">{i.party_name}</div></td>
                 <td className="muted small">{fmtDate(i.doc_date)}</td><td className="num">{money(i.total)}</td><td><Badge status={i.status} /></td></tr>
             ))}
-          </tbody></table>
+          </tbody></table></div>
         </div>
         <div className="card">
           <div className="card-head"><h3>Top customers</h3></div>
-          <table className="table compact"><tbody>
+          <div className="table-wrap"><table className="table compact"><tbody>
             {data.topCustomers.map((c) => <tr key={c.name}><td>{c.name}</td><td className="num">{money(c.total)}</td></tr>)}
-          </tbody></table>
+          </tbody></table></div>
         </div>
       </div>
     </>

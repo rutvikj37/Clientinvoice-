@@ -96,14 +96,14 @@ export default function Inventory() {
           <div className="card no-pad">
             {!data ? <p className="pad muted">Loading…</p> : data.length === 0 ? <Empty title="No items">Add items, or they are created automatically from Excel uploads.</Empty> : (
               <div className="table-wrap"><table className="table">
-                <thead><tr><th>Item Code</th><th>Description</th><th>HSN</th><th>Type</th><th className="num">Sell</th><th className="num">Cost</th><th className="num">GST</th><th className="num">In stock</th><th className="num">Reorder</th><th></th></tr></thead>
+                <thead><tr><th>Item Code</th><th>Description</th><th>HSN</th><th>Type</th><th className="num">Sell</th><th className="num">Cost</th><th className="num">GST</th><th className="num">In stock</th><th className="num">Reorder</th><th className="row-actions-head">Actions</th></tr></thead>
                 <tbody>{data.map((p) => (
                   <tr key={p.id} className={!p.is_active ? 'muted' : ''}>
                     <td className="nowrap"><b>{p.sku || '–'}</b></td><td>{p.name}{p.location && <div className="muted small">{p.location}</div>}</td><td>{p.hsn}</td>
                     <td className="small">{p.type}</td><td className="num">{money(p.sale_price)}</td><td className="num">{money(p.purchase_price)}</td><td className="num">{p.tax_rate}%</td>
                     <td className={`num ${p.stock_qty <= p.reorder_level ? 'text-danger' : ''}`}><b>{+p.stock_qty}</b> {p.unit}</td><td className="num">{+p.reorder_level}</td>
                     <td className="row-actions">
-                      <button className="btn btn-sm" onClick={() => setAdjust(p)}>± Stock</button>
+                      <button type="button" className="btn btn-sm row-quick" onClick={() => setAdjust(p)}>± Stock</button>
                       <ActionMenu items={[
                         { label: 'Edit', onClick: () => setEdit(p) },
                         { label: 'Stock history', onClick: () => setHistoryFor(p) },

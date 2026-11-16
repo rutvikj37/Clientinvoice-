@@ -115,7 +115,7 @@ export default function DocForm({ kind }) {
             <Field label={cfg.dateLabel}><input type="date" value={f.doc_date} onChange={set('doc_date')} /></Field>
             {cfg.dueLabel && <Field label={cfg.dueLabel} hint={!id && !f.due_date ? `Default: +${kind === 'quotation' ? company.quote_validity_days : company.default_due_days} days` : null}><input type="date" value={f.due_date || ''} onChange={set('due_date')} /></Field>}
             <Field label="Delivery Date"><input type="date" value={f.delivery_date || ''} onChange={set('delivery_date')} /></Field>
-            <Field label="Place of Supply" hint={!f.place_of_supply ? (kind === 'quotation' && company.default_place_of_supply ? `Default: ${company.default_place_of_supply}` : `Default: ${cfg.party.toLowerCase()}'s city & state`) : null}><input value={f.place_of_supply || ''} onChange={set('place_of_supply')} /></Field>
+            <Field label="Place of Supply" hint={!f.place_of_supply ? (company.default_place_of_supply ? `Default: ${company.default_place_of_supply}` : `Default: ${cfg.party.toLowerCase()}'s city & state`) : null}><input value={f.place_of_supply || ''} onChange={set('place_of_supply')} /></Field>
             <Field label={cfg.refLabel}><input value={f.reference || ''} onChange={set('reference')} /></Field>
             <Field label="Contact Person"><input value={f.contact_person || ''} onChange={set('contact_person')} placeholder="Mr. …" /></Field>
             <Field label="Phone No"><input value={f.contact_phone || ''} onChange={set('contact_phone')} /></Field>

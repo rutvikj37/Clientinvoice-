@@ -60,7 +60,7 @@ export default function Parties({ kind }) {
       <div className="card no-pad">
         {!data ? <p className="pad muted">Loading…</p> : data.length === 0 ? <Empty title={`No ${word.toLowerCase()}s yet`}>Add one, or they will be created automatically from Excel uploads.</Empty> : (
           <div className="table-wrap"><table className="table">
-            <thead><tr><th>Code</th><th>Name</th><th>GST No.</th><th>State</th><th>Contact</th>{kind === 'customers' ? <><th className="num">Invoices</th><th className="num">Outstanding</th></> : <th className="num">POs</th>}<th></th></tr></thead>
+            <thead><tr><th>Code</th><th>Name</th><th>GST No.</th><th>State</th><th>Contact</th>{kind === 'customers' ? <><th className="num">Invoices</th><th className="num">Outstanding</th></> : <th className="num">POs</th>}<th className="row-actions-head">Actions</th></tr></thead>
             <tbody>{data.map((p) => (
               <tr key={p.id}>
                 <td className="nowrap">{p.code || '–'}</td>

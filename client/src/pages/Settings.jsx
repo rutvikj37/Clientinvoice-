@@ -68,7 +68,7 @@ export default function Settings() {
               <Field label="Quotation valid for (days)"><input type="number" value={c.quote_validity_days ?? 15} onChange={set('quote_validity_days')} /></Field>
               <Field label="Default payment terms"><input value={c.default_payment_terms || ''} onChange={set('default_payment_terms')} placeholder="Against PI" /></Field>
               <Field label="Default transport"><input value={c.default_transport || ''} onChange={set('default_transport')} placeholder="By Road" /></Field>
-              <Field label="Quotation place of supply"><input value={c.default_place_of_supply || ''} onChange={set('default_place_of_supply')} placeholder="Ex- Works Jaipur" /></Field>
+              <Field label="Place of supply"><input value={c.default_place_of_supply || ''} onChange={set('default_place_of_supply')} placeholder="Ex- Works Jaipur" /></Field>
               <Field label="Invoice general conditions" span={3} hint="One per line"><textarea rows={3} value={c.invoice_terms || ''} onChange={set('invoice_terms')} /></Field>
               <Field label="Quotation general conditions" span={3}><textarea rows={3} value={c.quote_terms || ''} onChange={set('quote_terms')} /></Field>
               <Field label="PO general conditions" span={3}><textarea rows={3} value={c.po_terms || ''} onChange={set('po_terms')} /></Field>
@@ -132,10 +132,10 @@ function Team({ isAdmin }) {
   };
   return (<>
     <p className="muted small">Admins can approve purchase orders and change settings. Staff can create and send documents.</p>
-    <table className="table compact"><tbody>
+    <div className="table-wrap"><table className="table compact"><tbody>
       {data?.map((u) => <tr key={u.id}><td><b>{u.name}</b><div className="muted small">{u.email}</div></td><td>{u.role}</td>
         <td className="num">{isAdmin && <button className="btn btn-sm btn-danger-ghost" onClick={async () => { if (confirm(`Remove ${u.name}?`)) { try { await api.del(`/auth/users/${u.id}`); reload(); } catch (e) { toast(e.message, 'error'); } } }}>Remove</button>}</td></tr>)}
-    </tbody></table>
+    </tbody></table></div>
     {isAdmin && <form onSubmit={add} className="form-grid cols-3" style={{ marginTop: 16 }}>
       <Field label="Name"><input required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
       <Field label="Email"><input required type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>

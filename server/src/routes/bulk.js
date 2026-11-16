@@ -5,8 +5,10 @@
  *  1. FLAT sheet  - one row per line item, columns named like the client's template
  *                   (Doc No, Document Date, Vendor/Customer Code, Item Code, Item Description, HSN, Qty, UOM, Unit Price, Disc, CGST Rate...).
  *                   Rows with the same Doc Ref / Doc No become one document. Columns can be re-mapped in the UI.
- *  2. FORM files  - the client's own filled PO / Quotation template (one document per sheet). Labels such as
- *                   "PO No. :", "Details of Vendor", "Item Description" are located automatically.
+ *  2. FORM files  - the client's filled Quotation/Invoice form (or PO template) — one document per sheet.
+ *                   Labels such as "Offer No. :", "Details of Customer", "Item Description" are located
+ *                   automatically. Left-panel fields stay left of Customer/Vendor Code so empty Name/Address
+ *                   cells are not mistaken for the right-panel labels.
  */
 const router = require('express').Router();
 const crypto = require('crypto');
@@ -124,32 +126,80 @@ function sheetGrid(ws) {
 }
 
 const DOCNO_RE = /^(po|offer|invoice|quotation|quote|document)\s*no\.?\s*:?\s*(.*)$/i;
+/** Labels that appear on the Quotation/PO form — never treat these as field values */
+const FORM_LABELS = new Set([
+  'name', 'address', 'state', 'state code', 'gst no', 'gstin',
+  'customer code', 'vendor code', 'party code', 'customer name', 'vendor name', 'party name',
+  'payment terms', 'transport', 'contact person', 'phone no', 'phone', 'email',
+  'offer validity date', 'validity date', 'due date', 'delivery date', 'place of supply',
+  'item code', 'item description', 'description', 'hsn', 'hsn sac', 'qty', 'quantity', 'uom', 'unit',
+  'unit price', 'rate', 'price', 'disc', 'disc %', 'discount', 'price af disc', 'price after disc',
+  'cgst', 'sgst', 'igst', 'sr no', 'total amount', 'amt', 'sub total', 'total', 'total gst',
+  'details of customer', 'details of vendor', 'details of buyer', 'details of supplier',
+].map(norm));
 function isFormSheet(grid) {
   return grid.some((row) => row.cells.some((c) => /details of (vendor|customer|buyer|supplier)/i.test(c.text) || /^(po|offer|invoice|quotation)\s*no\.?\s*:/i.test(c.text)));
+}
+
+const BLANK_FORM_MSG = 'This looks like a blank form — fill customer name and item rows, or use Download bulk sheet template';
+
+/** Blank / sample Quotation template: has Offer No / Customer Code placeholders but no real Name or line items */
+function isBlankForm(header, items) {
+  const hasName = !!(header?.party_name && String(header.party_name).trim());
+  const hasItems = (items || []).some((it) => {
+    const desc = String(it.description || '').trim();
+    const code = String(it.item_code || '').trim();
+    const qty = toNum(it.qty);
+    return !!(desc || code || (qty != null && !Number.isNaN(qty) && qty !== 0));
+  });
+  return !hasName && !hasItems;
 }
 
 function parseForm(ws, type) {
   const grid = sheetGrid(ws);
   const all = grid.flatMap((row) => row.cells);
-  const inline = (re) => { for (const c of all) { const m = c.text.match(re); if (m) { const val = m[m.length - 1].trim(); if (val) return val; const nxt = rightOf(c); return nxt ? nxt.v : ''; } } return ''; };
   const rowOf = (r) => grid.find((g) => g.r === r)?.cells || [];
-  function rightOf(cell) {
-    return rowOf(cell.r).filter((x) => x.c > cell.c2 && x.text !== ':' && norm(x.text) !== norm(cell.text))[0] || null;
+  // Quotation/PO template: left party block (Name/Address/…) then right panel from Customer/Vendor Code
+  const rightPanelCol = all.find((c) => /^(customer|vendor|party)\s+code$/i.test(norm(c.text)))?.c || Infinity;
+  /** value = next non-label cell to the right; optional maxCol keeps left-panel lookups out of the right panel */
+  function rightOf(cell, { maxCol = Infinity } = {}) {
+    return rowOf(cell.r).filter((x) => {
+      if (x.c <= cell.c2 || x.c > maxCol) return false;
+      if (x.text === ':' || norm(x.text) === norm(cell.text)) return false;
+      if (FORM_LABELS.has(norm(x.text))) return false;
+      return true;
+    })[0] || null;
   }
+  const inline = (re) => {
+    for (const c of all) {
+      const m = c.text.match(re);
+      if (!m) continue;
+      const val = m[m.length - 1].trim();
+      if (val) return val;
+      const nxt = rightOf(c);
+      return nxt ? nxt.v : '';
+    }
+    return '';
+  };
   const partyRow = all.find((c) => /details of/i.test(c.text))?.r || 0;
   const itemHead = all.find((c) => norm(c.text) === 'item description' || norm(c.text) === 'description');
   const itemRow = itemHead?.r || Infinity;
-  /** label cell with exact text; value = next cell to the right */
-  const labelled = (labels, { after = 0, before = Infinity } = {}) => {
+  /** label cell with exact text; value = next cell to the right (not another label) */
+  const labelled = (labels, { after = 0, before = Infinity, maxCol = Infinity } = {}) => {
     const set = labels.map(norm);
     for (const c of all) {
       if (c.r <= after || c.r >= before) continue;
-      if (set.includes(norm(c.text))) { const v = rightOf(c); if (v && !set.includes(norm(v.text))) return v.v; }
+      if (set.includes(norm(c.text))) {
+        const v = rightOf(c, { maxCol });
+        if (v && !set.includes(norm(v.text)) && !FORM_LABELS.has(norm(v.text))) return v.v;
+      }
       const m = c.text.match(/^(.+?)\s*:\s*(.+)$/); // "State : Gujarat" in one cell
       if (m && set.includes(norm(m[1]))) return m[2].trim();
     }
     return '';
   };
+  // Left-panel fields must not jump across to "Customer Code / Customer Name / …"
+  const left = { after: partyRow - 1, before: itemRow, maxCol: rightPanelCol - 1 };
 
   const h = {
     doc_no: inline(DOCNO_RE),
@@ -161,18 +211,21 @@ function parseForm(ws, type) {
     contact_phone: str(labelled(['Phone No', 'Phone'], { before: partyRow || itemRow })),
     contact_email: str(labelled(['Email'], { before: partyRow || itemRow })),
     party_code: str(labelled(['Vendor Code', 'Customer Code', 'Party Code'], { before: itemRow })),
-    party_name: str(labelled(['Name'], { after: partyRow - 1, before: itemRow }) || labelled(['Vendor Name', 'Customer Name'], { before: itemRow })),
-    party_address: str(labelled(['Address'], { after: partyRow - 1, before: itemRow })),
-    party_state: str(labelled(['State'], { after: partyRow, before: itemRow })),
-    party_state_code: str(labelled(['State Code'], { after: partyRow, before: itemRow })),
-    party_gstin: str(labelled(['GST No', 'GST No.', 'GSTIN'], { after: partyRow - 1, before: itemRow })),
+    party_name: str(
+      labelled(['Name'], left)
+      || labelled(['Vendor Name', 'Customer Name'], { before: itemRow })
+    ),
+    party_address: str(labelled(['Address'], left)),
+    party_state: str(labelled(['State'], { after: partyRow, before: itemRow, maxCol: rightPanelCol - 1 })),
+    party_state_code: str(labelled(['State Code'], { after: partyRow, before: itemRow, maxCol: rightPanelCol - 1 })),
+    party_gstin: str(labelled(['GST No', 'GST No.', 'GSTIN'], left)),
     payment_terms: str(labelled(['Payment Terms'], { before: itemRow })),
     transport: str(labelled(['Transport'], { before: itemRow })),
     remarks: inline(/^remarks\s*:?\s*([\s\S]*)$/i),
     terms: inline(/^general\s*conditions\s*:?\s*([\s\S]*)$/i).replace(/^[\s\n]+/, ''),
   };
   if (h.contact_person && /^(mr|ms|mrs)\.?$/i.test(h.contact_person)) h.contact_person = '';
-  // Contact person in template sits beside 'Vendor Name' when Name is filled in the right panel only
+  // Prefer explicit Customer/Vendor Name when left Name is empty
   if (!h.party_name) h.party_name = str(labelled(['Vendor Name', 'Customer Name'], { before: itemRow }));
 
   // ---- items
@@ -187,9 +240,14 @@ function parseForm(ws, type) {
       const rate = head2.find((c) => norm(c.text) === 'rate' && c.c >= gc.c && c.c <= gc.c2);
       return rate ? rate.c : gc.c;
     };
+    // Prefer Unit Price over a bare "Rate" (Rate also appears under CGST/SGST on row 2)
+    const rateCol = colOf(['Unit Price', 'Price']) || (() => {
+      const c = head1.find((x) => norm(x.text) === 'rate');
+      return c && c.c < (groupRate('cgst') || Infinity) ? c.c : undefined;
+    })();
     const cols = {
       item_code: colOf(['Item Code', 'Code', 'Part No']), description: itemHead.c, hsn: colOf(['HSN', 'HSN/SAC', 'HSN Code']),
-      qty: colOf(['Qty', 'Quantity']), unit: colOf(['UOM', 'Unit']), rate: colOf(['Unit Price', 'Rate', 'Price']),
+      qty: colOf(['Qty', 'Quantity']), unit: colOf(['UOM', 'Unit']), rate: rateCol,
       discount_pct: colOf(['Disc', 'Disc %', 'Discount']), price_after_disc: colOf(['Price Af Disc', 'Price After Disc']),
       cgst_rate: groupRate('cgst'), sgst_rate: groupRate('sgst'), igst_rate: groupRate('igst'),
     };
@@ -213,7 +271,20 @@ function parseForm(ws, type) {
       };
       items.push(line);
     }
+    if (!items.length) {
+      errors.push('No line items found — fill Item Description, Qty and Unit Price in the item table (or use the bulk sheet template for many invoices)');
+    }
   } else errors.push('Could not find the item table (a header cell named "Item Description")');
+
+  // Sample Quotation template ships with Offer No / Customer Code (e.g. MCH-001) but empty Name + items
+  if (isBlankForm(h, items)) {
+    return {
+      header: { ...h, party_code: '', doc_no: h.doc_no && /^MCH\/\d{4}-\d{2}\/\d+$/i.test(h.doc_no) ? '' : h.doc_no },
+      items: [],
+      errors: [BLANK_FORM_MSG],
+      blank: true,
+    };
+  }
   return { header: h, items, errors };
 }
 
@@ -295,7 +366,12 @@ function validate(companyId, type, cands, { create_products = true } = {}) {
       seenNos.add(h.doc_no);
       if (db.prepare(`SELECT 1 FROM ${cfg.table} WHERE company_id = ? AND doc_no = ?`).get(companyId, h.doc_no)) c.errors.push(`${DOC_WORD[type]} No. ${h.doc_no} already exists`);
     }
-    if (!c.items.length) c.errors.push('No line items found');
+    if (!c.items.length) {
+      const already = (c.errors || []).some((e) => /no line items/i.test(e));
+      if (!already) {
+        c.errors.push('No line items found — fill Item Description, Qty and Unit Price (form file) or map those columns (bulk sheet)');
+      }
+    }
     let est = 0;
     c.items.forEach((it, i) => {
       const where = it.__row ? `Row ${it.__row}` : `Line ${i + 1}`;
@@ -418,10 +494,13 @@ router.get('/template', async (req, res) => {
 });
 
 // the client's own blank form templates (filled copies can be uploaded directly)
+// Invoice uses the same layout as the Quotation form (Offer No. / Details of Customer / item grid)
 router.get('/form-template', (req, res) => {
   const path = require('path');
-  const file = req.query.type === 'quotation' ? 'Quotation_Template.xlsx' : 'PO_Template.xlsx';
-  res.download(path.join(__dirname, '..', '..', 'assets', file), file);
+  const type = req.query.type || 'invoice';
+  const file = type === 'po' ? 'PO_Template.xlsx' : 'Quotation_Template.xlsx';
+  const downloadAs = type === 'invoice' ? 'Invoice_Form_Template.xlsx' : file;
+  res.download(path.join(__dirname, '..', '..', 'assets', file), downloadAs);
 });
 
 router.post('/parse', upload.array('files', 100), async (req, res) => {
@@ -441,6 +520,10 @@ router.post('/parse', upload.array('files', 100), async (req, res) => {
         const grid = sheetGrid(ws);
         if (isFormSheet(grid)) {
           const parsed = parseForm(ws, type);
+          if (parsed.blank || isBlankForm(parsed.header, parsed.items)) {
+            fileErrors.push(`${f.originalname}${ws.name && !/^(sheet1|table 1)$/i.test(ws.name) ? ` (${ws.name})` : ''}: ${BLANK_FORM_MSG}`);
+            continue;
+          }
           forms.push({ file: f.originalname, sheet: ws.name, ...parsed });
         } else {
           const p = parseFlat(ws);
@@ -454,12 +537,15 @@ router.post('/parse', upload.array('files', 100), async (req, res) => {
       fileErrors.push(`${f.originalname}: could not read file (${e.message}). Save it as .xlsx and try again.`);
     }
   }
-  if (!forms.length && !flat) throw new HttpError(400, fileErrors[0] || 'No data found in the uploaded file(s)');
+  if (!forms.length && !flat) {
+    const blankOnly = fileErrors.length && fileErrors.every((e) => e.includes(BLANK_FORM_MSG));
+    throw new HttpError(400, blankOnly ? BLANK_FORM_MSG : (fileErrors[0] || 'No data found in the uploaded file(s)'));
+  }
   const uploadId = crypto.randomUUID();
   uploads.set(uploadId, { companyId: req.companyId, type, forms, flat, fileNames: files.map((f) => f.originalname).join(', '), expires: Date.now() + 60 * 60 * 1000 });
   res.json({
     uploadId, type, fileErrors,
-    forms: forms.map((f) => ({ file: f.file, sheet: f.sheet, doc_no: f.header.doc_no, party: f.header.party_name, items: f.items.length })),
+    forms: forms.map((f) => ({ file: f.file, sheet: f.sheet, doc_no: f.header.doc_no, party: f.header.party_name || f.header.party_code || '', items: f.items.length })),
     flat: flat && {
       files: flat.files, headers: flat.headers, totalRows: flat.rows.length, mapping: suggestMapping(flat.headers, type),
       sample: flat.rows.slice(0, 5).map((r) => Object.fromEntries(flat.headers.map((h) => [h, r[h] instanceof Date ? r[h].toISOString().slice(0, 10) : r[h]]))),
@@ -535,4 +621,4 @@ router.get('/batches', (req, res) => {
 });
 
 module.exports = router;
-module.exports._test = { parseForm, sheetGrid, isFormSheet };
+module.exports._test = { parseForm, sheetGrid, isFormSheet, isBlankForm, BLANK_FORM_MSG };

@@ -1,15 +1,14 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, download, money, fmtDate } from '../api.js';
 import { PageHead, useToast, useLoad } from '../components/ui.jsx';
 import { DOCS } from '../docs.js';
 
-const TYPES = [['invoice', 'Invoices'], ['quotation', 'Quotations'], ['po', 'Purchase Orders']];
+const type = 'invoice';
+const cfg = DOCS.invoice;
 
 export default function BulkUpload() {
   const [params, setParams] = useSearchParams();
-  const type = DOCS[params.get('type')] ? params.get('type') : 'invoice';
-  const cfg = DOCS[type];
   const toast = useToast();
   const fileRef = useRef();
   const [step, setStep] = useState('upload'); // upload | map | preview | done
@@ -22,8 +21,13 @@ export default function BulkUpload() {
   const [opts, setOpts] = useState({ status: 'unpaid', create_products: true });
   const batches = useLoad(() => api.get('/bulk/batches'), [result]);
 
+  // Bulk upload is invoices-only; normalize any other ?type= to invoice
+  useEffect(() => {
+    const t = params.get('type');
+    if (t && t !== 'invoice') setParams({ type: 'invoice' }, { replace: true });
+  }, [params, setParams]);
+
   const reset = () => { setStep('upload'); setParsed(null); setPreview(null); setResult(null); setMapping({}); };
-  const switchType = (t) => { setParams({ type: t }); reset(); };
 
   const onFiles = async (files) => {
     if (!files?.length) return;
@@ -61,10 +65,7 @@ export default function BulkUpload() {
 
   return (
     <>
-      <PageHead title="Bulk upload from Excel" sub="Create many invoices, quotations or purchase orders in one go" />
-      <div className="seg">
-        {TYPES.map(([t, l]) => <button key={t} className={`seg-btn ${type === t ? 'active' : ''}`} onClick={() => switchType(t)}>{l}</button>)}
-      </div>
+      <PageHead title="Bulk upload from Excel" sub="Create many invoices in one go" />
 
       <ol className="wizard">
         {[['upload', 'Upload'], ['map', 'Match columns'], ['preview', 'Check'], ['done', 'Done']].map(([s, l], i) => (
@@ -84,20 +85,21 @@ export default function BulkUpload() {
             <input ref={fileRef} type="file" multiple accept=".xlsx,.xls,.csv" hidden onChange={(e) => onFiles(e.target.files)} />
           </div>
           <div className="card">
-            <h3 className="card-title">Two ways to upload {cfg.plural.toLowerCase()}</h3>
+            <h3 className="card-title">How to upload invoices</h3>
             <div className="howto">
               <div>
-                <b>1. Bulk sheet (many documents in one file)</b>
-                <p className="muted small">One row per item, with the same columns as your template (Doc No., Document Date, {cfg.party} Code, Name, Address, State, GST No., Item Code, Item Description, HSN, Qty, UOM, Unit Price, Disc, CGST/SGST/IGST Rate…). Rows with the same <i>Doc Ref</i> become one document.</p>
+                <b>1. Bulk sheet (many invoices in one file)</b>
+                <p className="muted small">Download the sheet → fill one row per item (Doc No., Date, {cfg.party} Code/Name, Item Description, Qty, Unit Price…) → upload. Rows with the same <i>Doc Ref</i> become one invoice.</p>
                 <button className="btn btn-sm" onClick={() => download(`/bulk/template?type=${type}`, `bulk-${type}-template.xlsx`)}>Download bulk sheet template</button>
               </div>
               <div>
-                <b>2. Your filled form files (one document per file)</b>
-                <p className="muted small">Upload your filled {type === 'po' ? 'Purchase Order' : 'Quotation'} format files exactly as they are. PO No., dates, vendor/customer details and the item table are read automatically. Select many files at once.</p>
-                <button className="btn btn-sm" onClick={() => download(`/bulk/form-template?type=${type === 'po' ? 'po' : 'quotation'}`, type === 'po' ? 'PO_Template.xlsx' : 'Quotation_Template.xlsx')}>Download blank {type === 'po' ? 'PO' : 'Quotation'} form</button>
+                <b>2. Form file (one invoice per Excel)</b>
+                <p className="muted small">Download the blank form → fill <i>customer Name</i> and at least one item row (Description, Qty, Unit Price) → upload. Do not upload the empty template as-is; sample codes in a blank file are ignored.</p>
+                <button className="btn btn-sm" onClick={() => download(`/bulk/form-template?type=${type}`, 'Invoice_Form_Template.xlsx')}>Download blank form template</button>
               </div>
             </div>
             <ul className="muted small bullets">
+              <li>Always fill the file first, then upload — an empty template will not create invoices.</li>
               <li>New {cfg.party.toLowerCase()}s are created automatically (matched by Code, then GST No., then Name).</li>
               <li>New item codes are added to Inventory; known codes fill HSN, UOM, price and GST automatically.</li>
               <li>CGST+SGST or IGST is chosen automatically from the {cfg.party.toLowerCase()}'s state / GST No.</li>
@@ -150,12 +152,9 @@ export default function BulkUpload() {
             </div>
           </div>
           <div className="options">
-            {type === 'invoice' && (
-              <label className="inline">Create invoices as
-                <select value={opts.status} onChange={(e) => setOpts({ ...opts, status: e.target.value })}><option value="unpaid">Issued (stock deducted)</option><option value="draft">Draft (review first)</option></select>
-              </label>
-            )}
-            {type !== 'invoice' && <span className="muted small">{cfg.plural} are created as Draft{type === 'po' ? ', then go through approval' : ''}.</span>}
+            <label className="inline">Create invoices as
+              <select value={opts.status} onChange={(e) => setOpts({ ...opts, status: e.target.value })}><option value="unpaid">Issued (stock deducted)</option><option value="draft">Draft (review first)</option></select>
+            </label>
             <label className="inline"><input type="checkbox" checked={opts.create_products} onChange={(e) => setOpts({ ...opts, create_products: e.target.checked })} /> Add new item codes to inventory</label>
           </div>
           <div className="table-wrap"><table className="table compact">
@@ -184,22 +183,22 @@ export default function BulkUpload() {
           {result.failed.length > 0 && (
             <div className="alert alert-error small">{result.failed.map((f, i) => <div key={i}><b>{f.source}</b>: {f.errors.join('; ')}</div>)}</div>
           )}
-          <table className="table compact"><tbody>
+          <div className="table-wrap"><table className="table compact"><tbody>
             {result.created.map((c) => <tr key={c.id}><td><Link to={`${cfg.path}/${c.id}`}>{c.doc_no}</Link></td><td className="small muted">{c.source}</td><td className="num">{money(c.total)}</td></tr>)}
-          </tbody></table>
+          </tbody></table></div>
         </div>
       )}
 
       <div className="card">
         <div className="card-head"><h3>Upload history</h3></div>
         {!batches.data?.length ? <p className="muted small">No uploads yet.</p> : (
-          <table className="table compact"><thead><tr><th>#</th><th>Type</th><th>File(s)</th><th>When</th><th>By</th><th className="num">Created</th><th></th></tr></thead><tbody>
+          <div className="table-wrap"><table className="table compact"><thead><tr><th>#</th><th>Type</th><th>File(s)</th><th>When</th><th>By</th><th className="num">Created</th><th></th></tr></thead><tbody>
             {batches.data.map((b) => (
               <tr key={b.id}><td>{b.id}</td><td>{DOCS[b.doc_type]?.plural}</td><td className="small">{b.file_name}</td><td className="small nowrap">{new Date(b.created_at + 'Z').toLocaleString('en-IN')}</td><td>{b.user_name}</td>
                 <td className="num">{b.docs_created}{b.errors.length ? <span className="text-danger small"> ({b.errors.length} skipped)</span> : ''}</td>
                 <td><Link className="small" to={`${DOCS[b.doc_type]?.path}?batch_id=${b.id}`}>View</Link></td></tr>
             ))}
-          </tbody></table>
+          </tbody></table></div>
         )}
       </div>
     </>

@@ -29,7 +29,7 @@ Document fields and the PDF layout follow the client's own PO / Quotation Excel 
 ```bash
 npm run install:all          # install server + client deps
 cp server/.env.example server/.env
-npm run seed                 # optional demo data → admin@motioncrest.test / demo123
+npm run seed                 # optional demo data → admin@gmail.com / admin123
 npm run dev:server           # API on http://localhost:4000
 npm run dev:client           # UI on http://localhost:5173 (proxies /api)
 ```
