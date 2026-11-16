@@ -45,7 +45,11 @@ function Layout({ children }) {
   const { user, company, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const loc = useLocation();
-  useEffect(() => setOpen(false), [loc.pathname]);
+  useEffect(() => {
+    setOpen(false);
+    const nav = document.querySelector('.sidebar-nav');
+    if (nav) nav.scrollTop = 0;
+  }, [loc.pathname]);
   useEffect(() => {
     document.body.classList.toggle('nav-open', open);
     return () => document.body.classList.remove('nav-open');
@@ -55,20 +59,16 @@ function Layout({ children }) {
       <aside className={`sidebar ${open ? 'open' : ''}`}>
         <div className="brand">
           {company?.logo_path
-            ? <img src={`/api/uploads/${company.logo_path}`} alt={company?.name || 'Company logo'} className="brand-logo" />
-            : (
-              <>
-                <div className="brand-mark">{(company?.name || 'M')[0]}</div>
-                <div>
-                  <div className="brand-name">{company?.name || 'MotionCrest'}</div>
-                  <div className="brand-sub">Invoicing · PO · Stock</div>
-                </div>
-              </>
-            )}
+            ? <img src={`/api/uploads/${company.logo_path}`} alt="" className="brand-logo" />
+            : <div className="brand-mark">{(company?.name || 'M')[0]}</div>}
+          <div className="brand-text">
+            <div className="brand-name">{company?.name || 'MotionCrest'}</div>
+            <div className="brand-sub">Invoicing · PO · Stock</div>
+          </div>
         </div>
         <nav className="sidebar-nav" aria-label="Main">
           {NAV.map((n, i) => {
-            if (n.section) return <div key={i} className="nav-section">{n.section}</div>;
+            if (n.section) return <div key={`s-${n.section}`} className="nav-section">{n.section}</div>;
             const Icon = n.icon;
             return (
               <NavLink
@@ -76,6 +76,7 @@ function Layout({ children }) {
                 to={n.to}
                 end={n.end}
                 className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+                title={n.label}
               >
                 <span className="nav-icon" aria-hidden="true"><Icon /></span>
                 <span className="nav-label">{n.label}</span>
