@@ -65,11 +65,15 @@ export default function DocView({ kind }) {
 
   const buttons = [];
   if (editable(kind, d)) buttons.push(<Link key="edit" className="btn" to={`${cfg.path}/${d.id}/edit`}>Edit</Link>);
+  const confirmReset = () => confirm(`Reset ${cfg.label.toLowerCase()} ${d.doc_no} to draft?\n\nYou can edit it again after reset.`);
   if (kind === 'invoice') {
     if (d.status === 'draft') buttons.push(<button key="issue" className="btn btn-primary" onClick={() => act('issue', {}, 'Invoice issued')}>Issue invoice</button>);
     if (['unpaid', 'partially_paid'].includes(d.status)) {
       buttons.push(<button key="pay" className="btn btn-primary" onClick={() => setPay(true)}>Record payment</button>);
       buttons.push(<button key="paid" className="btn" onClick={() => act('mark-paid', {}, 'Marked as paid')}>Mark paid</button>);
+    }
+    if (['unpaid', 'cancelled'].includes(d.status) && !(d.amount_paid > 0)) {
+      buttons.push(<button key="reset" className="btn" onClick={() => confirmReset() && act('reset', {}, 'Reset to draft')}>Reset to draft</button>);
     }
   }
   if (kind === 'quotation') {
@@ -78,7 +82,9 @@ export default function DocView({ kind }) {
       buttons.push(<button key="acc" className="btn" onClick={() => act('accept', {}, 'Marked accepted')}>Accepted</button>);
       buttons.push(<button key="rej" className="btn" onClick={() => setReason({ action: 'reject', title: 'Reason for rejection' })}>Rejected</button>);
     }
-    if (['rejected', 'cancelled'].includes(d.status)) buttons.push(<button key="reopen" className="btn" onClick={() => act('reopen', {}, 'Reopened')}>Reopen</button>);
+    if (['sent', 'accepted', 'rejected', 'cancelled'].includes(d.status)) {
+      buttons.push(<button key="reset" className="btn" onClick={() => confirmReset() && act('reset', {}, 'Reset to draft')}>Reset to draft</button>);
+    }
     if (d.converted_invoice) buttons.push(<Link key="inv" className="btn" to={`/invoices/${d.converted_invoice.id}`}>Open invoice {d.converted_invoice.doc_no}</Link>);
   }
   if (kind === 'po') {
@@ -89,6 +95,7 @@ export default function DocView({ kind }) {
     if (d.status === 'approved') buttons.push(<button key="sent" className="btn" onClick={() => act('send', { channel: 'manual' }, 'Marked as sent')}>Mark as sent</button>);
     if (a.includes('receive')) buttons.push(<button key="rcv" className="btn btn-primary" onClick={() => setReceive(true)}>Receive goods (GRN)</button>);
     if (a.includes('close')) buttons.push(<button key="close" className="btn" onClick={() => act('close', {}, 'PO closed')}>Close PO</button>);
+    if (a.includes('reset')) buttons.push(<button key="reset" className="btn" onClick={() => confirmReset() && act('reset', {}, 'Reset to draft')}>Reset to draft</button>);
   }
 
   const cancelAllowed = kind === 'invoice' ? !['cancelled', 'draft'].includes(d.status) && !(d.amount_paid > 0)

@@ -116,6 +116,22 @@ async function cancel(req, inv, reason) {
   });
 }
 
+/** Put an invoice back to draft so it can be edited again (stock restored if it was issued). */
+async function reset(req, inv) {
+  if (inv.status === 'draft') throw new HttpError(400, `${inv.doc_no} is already a draft`);
+  if (['paid', 'partially_paid'].includes(inv.status) || inv.amount_paid > 0) {
+    throw new HttpError(400, `${inv.doc_no}: delete recorded payments before resetting to draft`);
+  }
+  if (!['unpaid', 'cancelled'].includes(inv.status)) {
+    throw new HttpError(400, `${inv.doc_no}: only unpaid or cancelled invoices can be reset to draft`);
+  }
+  await db.transaction(async () => {
+    if (inv.stock_applied) await applyInvoiceStock(inv, +1, req.user.id);
+    await db.prepare("UPDATE invoices SET status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(inv.id);
+    await logActivity(req.companyId, 'invoice', inv.id, 'reset', 'Reset to draft', req.user.id);
+  });
+}
+
 async function refreshPaymentStatus(invoiceId) {
   const inv = await db.prepare('SELECT * FROM invoices WHERE id = ?').get(invoiceId);
   const paid = round2((await db.prepare('SELECT COALESCE(SUM(amount),0) AS s FROM invoice_payments WHERE invoice_id = ?').get(invoiceId)).s);
@@ -143,6 +159,7 @@ async function addPayment(req, inv, { amount, paid_on, mode, reference }) {
 
 router.post('/:id/issue', async (req, res) => { await issue(req, await mustGet(req)); res.json(await mustGet(req)); });
 router.post('/:id/cancel', async (req, res) => { await cancel(req, await mustGet(req), req.body?.reason); res.json(await mustGet(req)); });
+router.post('/:id/reset', async (req, res) => { await reset(req, await mustGet(req)); res.json(await mustGet(req)); });
 router.post('/:id/payments', async (req, res) => { await addPayment(req, await mustGet(req), req.body || {}); res.json(await mustGet(req)); });
 router.post('/:id/mark-paid', async (req, res) => { await addPayment(req, await mustGet(req), { mode: req.body?.mode || 'Other' }); res.json(await mustGet(req)); });
 router.delete('/:id/payments/:pid', async (req, res) => {

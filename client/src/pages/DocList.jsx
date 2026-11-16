@@ -66,6 +66,10 @@ export default function DocList({ kind }) {
       ...common.slice(2),
       { label: 'Record payment', disabled: !['unpaid', 'partially_paid'].includes(r.status), onClick: () => setPay(r) },
       { label: 'Mark as paid', disabled: !['unpaid', 'partially_paid'].includes(r.status), onClick: () => act(() => api.post(`/invoices/${r.id}/mark-paid`), 'Marked as paid') },
+      ['unpaid', 'cancelled'].includes(r.status) && !(r.amount_paid > 0) && {
+        label: 'Reset to draft',
+        onClick: () => confirm(`Reset invoice ${r.doc_no} to draft?`) && act(() => api.post(`/invoices/${r.id}/reset`), 'Reset to draft'),
+      },
       '-',
       r.status === 'draft'
         ? { label: 'Delete', danger: true, onClick: () => confirm('Delete this draft?') && act(() => api.del(`/invoices/${r.id}`), 'Deleted') }
@@ -76,6 +80,10 @@ export default function DocList({ kind }) {
       { label: 'Convert to invoice', disabled: !['draft', 'sent', 'accepted'].includes(r.status), onClick: () => act(async () => { const x = await api.post(`/quotations/${r.id}/convert`); toast(`Invoice ${x.invoice_no} created`); nav(`/invoices/${x.invoice_id}`); }) },
       { label: 'Mark accepted', disabled: !['draft', 'sent'].includes(r.status), onClick: () => act(() => api.post(`/quotations/${r.id}/accept`), 'Marked accepted') },
       { label: 'Mark rejected', disabled: !['draft', 'sent'].includes(r.status), onClick: () => act(() => api.post(`/quotations/${r.id}/reject`), 'Marked rejected') },
+      ['sent', 'accepted', 'rejected', 'cancelled'].includes(r.status) && {
+        label: 'Reset to draft',
+        onClick: () => confirm(`Reset quotation ${r.doc_no} to draft?`) && act(() => api.post(`/quotations/${r.id}/reset`), 'Reset to draft'),
+      },
       '-',
       r.status === 'draft'
         ? { label: 'Delete', danger: true, onClick: () => confirm('Delete this draft?') && act(() => api.del(`/quotations/${r.id}`), 'Deleted') }
@@ -86,6 +94,10 @@ export default function DocList({ kind }) {
       r.status === 'draft' || r.status === 'rejected' ? { label: 'Submit for approval', onClick: () => act(() => api.post(`/purchase-orders/${r.id}/submit`), 'Submitted') } : null,
       r.status === 'pending_approval' ? { label: 'Approve', onClick: () => act(() => api.post(`/purchase-orders/${r.id}/approve`), 'Approved') } : null,
       ['approved', 'sent', 'partially_received'].includes(r.status) ? { label: 'Receive goods (GRN)', onClick: () => nav(`/purchase-orders/${r.id}?receive=1`) } : null,
+      ['pending_approval', 'approved', 'sent', 'rejected', 'cancelled'].includes(r.status) ? {
+        label: 'Reset to draft',
+        onClick: () => confirm(`Reset PO ${r.doc_no} to draft?`) && act(() => api.post(`/purchase-orders/${r.id}/reset`), 'Reset to draft'),
+      } : null,
       '-',
       r.status === 'draft'
         ? { label: 'Delete', danger: true, onClick: () => confirm('Delete this draft?') && act(() => api.del(`/purchase-orders/${r.id}`), 'Deleted') }

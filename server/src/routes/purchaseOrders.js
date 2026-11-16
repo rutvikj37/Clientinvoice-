@@ -19,6 +19,8 @@ const TRANSITIONS = {
   receive: { from: ['approved', 'sent', 'partially_received'] },
   close: { from: ['partially_received', 'received'] },
   cancel: { from: ['draft', 'pending_approval', 'approved', 'sent', 'rejected'] },
+  // Back to editable draft before any goods receipt
+  reset: { from: ['pending_approval', 'approved', 'sent', 'rejected', 'cancelled'] },
 };
 
 const router = express.Router();
@@ -153,6 +155,12 @@ router.post('/:id/:action', async (req, res) => {
     transition(req, po, action);
     await setStatus(po.id, action === 'close' ? 'closed' : 'cancelled');
     await logActivity(req.companyId, 'po', po.id, action === 'close' ? 'closed' : 'cancelled', body.reason, req.user.id);
+  } else if (action === 'reset') {
+    transition(req, po, 'reset');
+    const received = (await db.prepare('SELECT COALESCE(SUM(received_qty),0) AS r FROM po_items WHERE doc_id = ?').get(po.id)).r;
+    if (received > 0) throw new HttpError(400, `${po.doc_no}: cannot reset after goods have been received`);
+    await db.prepare(`UPDATE purchase_orders SET status = 'draft', approved_by = NULL, approved_at = NULL, rejection_reason = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(po.id);
+    await logActivity(req.companyId, 'po', po.id, 'reset', 'Reset to draft', req.user.id);
   } else throw new HttpError(404, 'Unknown action');
   res.json({ ok: true, po: await mustGet(req) });
 });

@@ -50,6 +50,8 @@ const RULES = {
   reject: [['draft', 'sent'], 'rejected'],
   cancel: [['draft', 'sent', 'accepted', 'rejected'], 'cancelled'],
   reopen: [['rejected', 'cancelled'], 'draft'],
+  // Reset any non-converted quotation back to an editable draft
+  reset: [['sent', 'accepted', 'rejected', 'cancelled'], 'draft'],
 };
 
 async function convert(req, q, { status } = {}) {
@@ -93,8 +95,11 @@ router.post('/:id/:action', async (req, res) => {
   const rule = RULES[req.params.action];
   if (!rule) throw new HttpError(404, 'Unknown action');
   const q = await mustGet(req);
+  if (req.params.action === 'reset' && q.status === 'converted') {
+    throw new HttpError(400, `${q.doc_no}: converted quotations cannot be reset (open/cancel the linked invoice first)`);
+  }
   if (!rule[0].includes(q.status)) throw new HttpError(400, `Cannot ${req.params.action} a ${q.status} quotation`);
-  await setStatus(req, q, rule[1], req.params.action, req.body?.reason);
+  await setStatus(req, q, rule[1], req.params.action === 'reset' ? 'reset' : req.params.action, req.body?.reason || (req.params.action === 'reset' ? 'Reset to draft' : null));
   res.json(await mustGet(req));
 });
 
