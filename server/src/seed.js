@@ -9,8 +9,26 @@ const { db, DATA_DIR } = require('./db');
 const ADMIN_EMAIL = 'admin@gmail.com';
 const ADMIN_PASSWORD = 'admin123';
 
+const BANK = {
+  bank_name: 'IDFC FIRST Bank',
+  bank_account: '75685864328',
+  bank_ifsc: 'IDFB0043421',
+  bank_branch: 'Jaipur - Jhotwara Branch',
+};
+
 if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(ADMIN_EMAIL)) {
-  console.log('Admin already exists. Login: admin@gmail.com / admin123');
+  // Keep live bank details in sync with the company account (idempotent).
+  const r = db
+    .prepare(
+      `UPDATE companies SET bank_name = ?, bank_account = ?, bank_ifsc = ?, bank_branch = ?
+       WHERE legal_name LIKE '%MOTIONCREST%' OR name LIKE '%MotionCrest%'`
+    )
+    .run(BANK.bank_name, BANK.bank_account, BANK.bank_ifsc, BANK.bank_branch);
+  console.log(
+    r.changes
+      ? `Admin already exists; bank details updated (${BANK.bank_name} / ${BANK.bank_ifsc}).`
+      : 'Admin already exists. Login: admin@gmail.com / admin123'
+  );
   process.exit(0);
 }
 
@@ -29,8 +47,8 @@ db.transaction(() => {
   const cid = db
     .prepare(
       `INSERT INTO companies (name, legal_name, gstin, pan, address, city, state, state_code, pincode, phone, email, website, logo_path, tagline,
-    bank_name, bank_account, bank_ifsc, invoice_prefix, quote_prefix, po_prefix, default_payment_terms, default_transport, default_place_of_supply,
-    invoice_terms, quote_terms, po_terms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    bank_name, bank_account, bank_ifsc, bank_branch, invoice_prefix, quote_prefix, po_prefix, default_payment_terms, default_transport, default_place_of_supply,
+    invoice_terms, quote_terms, po_terms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     )
     .run(
       'MotionCrest Hydraulics',
@@ -47,9 +65,10 @@ db.transaction(() => {
       null,
       logo,
       'Rising to power. Moving the world.',
-      'Demo Bank',
-      '000000000000',
-      'DEMO0000000',
+      BANK.bank_name,
+      BANK.bank_account,
+      BANK.bank_ifsc,
+      BANK.bank_branch,
       'MCH/{FY}/',
       'MCH/QT/{FY}/',
       'MCH/{FY}/',

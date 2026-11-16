@@ -13,6 +13,8 @@ chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 echo "==> Installing & building"
 sudo -u "$APP_USER" -H env PATH="$PATH" bash -c "cd '$APP_DIR/server' && npm ci --omit=dev --no-audit --no-fund"
 sudo -u "$APP_USER" -H env PATH="$PATH" bash -c "cd '$APP_DIR/client' && npm ci --no-audit --no-fund && npm run build"
+# Sync company seed defaults (e.g. bank details) without recreating admin
+sudo -u "$APP_USER" -H env PATH="$PATH" bash -c "cd '$APP_DIR/server' && node src/seed.js" || true
 if command -v pm2 >/dev/null && pm2 describe clientinvoice >/dev/null 2>&1; then
   pm2 restart clientinvoice --update-env
 else
