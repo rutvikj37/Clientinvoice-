@@ -350,7 +350,7 @@ function flatToCandidates(rows, mapping, type) {
 }
 
 // ---- validation shared by both modes ---------------------------------------
-function validate(companyId, type, cands, { create_products = true } = {}) {
+async function validate(companyId, type, cands, { create_products = true } = {}) {
   const cfg = kindOf(type);
   const seenNos = new Set();
   for (const c of cands) {
@@ -358,13 +358,13 @@ function validate(companyId, type, cands, { create_products = true } = {}) {
     c.warnings = c.warnings || [];
     const h = c.header || {};
     if (!h.party_name && !h.party_code) c.errors.push(`${PARTY_WORD[type]} name is missing`);
-    if (h.party_code && !h.party_name && !db.prepare(`SELECT 1 FROM ${cfg.party} WHERE company_id = ? AND code = ?`).get(companyId, h.party_code))
+    if (h.party_code && !h.party_name && !(await db.prepare(`SELECT 1 FROM ${cfg.party} WHERE company_id = ? AND code = ?`).get(companyId, h.party_code)))
       c.errors.push(`${PARTY_WORD[type]} code ${h.party_code} not found and no name given`);
     for (const k of ['doc_date', 'due_date', 'delivery_date']) if (h[k] === 'invalid') c.errors.push(`${k.replace('_', ' ')} is not a valid date (use DD/MM/YYYY)`);
     if (h.doc_no) {
       if (seenNos.has(h.doc_no)) c.errors.push(`${h.doc_no} appears twice in the upload`);
       seenNos.add(h.doc_no);
-      if (db.prepare(`SELECT 1 FROM ${cfg.table} WHERE company_id = ? AND doc_no = ?`).get(companyId, h.doc_no)) c.errors.push(`${DOC_WORD[type]} No. ${h.doc_no} already exists`);
+      if (await db.prepare(`SELECT 1 FROM ${cfg.table} WHERE company_id = ? AND doc_no = ?`).get(companyId, h.doc_no)) c.errors.push(`${DOC_WORD[type]} No. ${h.doc_no} already exists`);
     }
     if (!c.items.length) {
       const already = (c.errors || []).some((e) => /no line items/i.test(e));
@@ -373,9 +373,10 @@ function validate(companyId, type, cands, { create_products = true } = {}) {
       }
     }
     let est = 0;
-    c.items.forEach((it, i) => {
+    for (let i = 0; i < c.items.length; i++) {
+      const it = c.items[i];
       const where = it.__row ? `Row ${it.__row}` : `Line ${i + 1}`;
-      const product = it.item_code ? db.prepare('SELECT * FROM products WHERE company_id = ? AND sku = ?').get(companyId, it.item_code) : null;
+      const product = it.item_code ? await db.prepare('SELECT * FROM products WHERE company_id = ? AND sku = ?').get(companyId, it.item_code) : null;
       if (!it.description && !product) c.errors.push(`${where}: item description is missing`);
       if (it.qty === null || Number.isNaN(it.qty) || it.qty <= 0) c.errors.push(`${where}: Qty must be a number greater than 0`);
       if ((it.rate === null && !product) || Number.isNaN(it.rate) || it.rate < 0) c.errors.push(`${where}: Unit Price must be a valid number`);
@@ -385,19 +386,19 @@ function validate(companyId, type, cands, { create_products = true } = {}) {
       const net = it.price_after_disc ?? rate * (1 - (it.discount_pct || 0) / 100);
       const tax = it.tax_rate ?? ((it.cgst_rate || 0) + (it.sgst_rate || 0) || it.igst_rate || product?.tax_rate || 0);
       est += (it.qty || 0) * net * (1 + tax / 100);
-    });
+    }
     c.total_estimate = Math.round(est + (c.shipping || 0));
   }
   return cands;
 }
 
-function findOrCreateParty(companyId, type, h) {
+async function findOrCreateParty(companyId, type, h) {
   const cfg = kindOf(type);
   const t = cfg.party;
   let p = null;
-  if (h.party_code) p = db.prepare(`SELECT * FROM ${t} WHERE company_id = ? AND code = ?`).get(companyId, h.party_code);
-  if (!p && h.party_gstin) p = db.prepare(`SELECT * FROM ${t} WHERE company_id = ? AND UPPER(gstin) = UPPER(?)`).get(companyId, h.party_gstin);
-  if (!p && h.party_name) p = db.prepare(`SELECT * FROM ${t} WHERE company_id = ? AND LOWER(name) = LOWER(?)`).get(companyId, h.party_name);
+  if (h.party_code) p = await db.prepare(`SELECT * FROM ${t} WHERE company_id = ? AND code = ?`).get(companyId, h.party_code);
+  if (!p && h.party_gstin) p = await db.prepare(`SELECT * FROM ${t} WHERE company_id = ? AND UPPER(gstin) = UPPER(?)`).get(companyId, h.party_gstin);
+  if (!p && h.party_name) p = await db.prepare(`SELECT * FROM ${t} WHERE company_id = ? AND LOWER(name) = LOWER(?)`).get(companyId, h.party_name);
   const state = h.party_state || (h.party_state_code ? STATES[String(h.party_state_code).padStart(2, '0')] : '') || '';
   const data = {
     code: h.party_code, name: h.party_name, address: h.party_address, city: h.party_city, state, gstin: (h.party_gstin || '').toUpperCase(),
@@ -405,26 +406,26 @@ function findOrCreateParty(companyId, type, h) {
   };
   if (p) {
     const fill = Object.entries(data).filter(([k, v]) => v && !p[k]);
-    if (fill.length) db.prepare(`UPDATE ${t} SET ${fill.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...fill.map(([, v]) => v), p.id);
-    p = db.prepare(`SELECT * FROM ${t} WHERE id = ?`).get(p.id);
-    db.prepare(`UPDATE ${t} SET state_code = ? WHERE id = ?`).run(stateCodeFor(p.state, p.gstin) || (h.party_state_code ? String(h.party_state_code).padStart(2, '0') : null), p.id);
+    if (fill.length) await db.prepare(`UPDATE ${t} SET ${fill.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...fill.map(([, v]) => v), p.id);
+    p = await db.prepare(`SELECT * FROM ${t} WHERE id = ?`).get(p.id);
+    await db.prepare(`UPDATE ${t} SET state_code = ? WHERE id = ?`).run(stateCodeFor(p.state, p.gstin) || (h.party_state_code ? String(h.party_state_code).padStart(2, '0') : null), p.id);
     return { party: p, created: false };
   }
   const code = h.party_state_code ? String(h.party_state_code).padStart(2, '0') : stateCodeFor(state, data.gstin);
-  const r = db.prepare(`INSERT INTO ${t} (company_id, code, name, address, city, state, state_code, gstin, phone, email) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+  const r = await db.prepare(`INSERT INTO ${t} (company_id, code, name, address, city, state, state_code, gstin, phone, email) VALUES (?,?,?,?,?,?,?,?,?,?)`)
     .run(companyId, data.code || null, data.name, data.address || null, data.city || null, state || null, code || null, data.gstin || null, data.phone || null, data.email || null);
-  return { party: db.prepare(`SELECT * FROM ${t} WHERE id = ?`).get(r.lastInsertRowid), created: true };
+  return { party: await db.prepare(`SELECT * FROM ${t} WHERE id = ?`).get(r.lastInsertRowid), created: true };
 }
 
-function ensureProducts(companyId, type, items) {
+async function ensureProducts(companyId, type, items) {
   const cfg = kindOf(type);
   let created = 0;
   for (const it of items) {
     if (!it.item_code) continue;
-    if (db.prepare('SELECT 1 FROM products WHERE company_id = ? AND sku = ?').get(companyId, it.item_code)) continue;
+    if (await db.prepare('SELECT 1 FROM products WHERE company_id = ? AND sku = ?').get(companyId, it.item_code)) continue;
     const tax = it.tax_rate ?? ((it.cgst_rate || 0) + (it.sgst_rate || 0) || it.igst_rate || 18);
     const price = it.price_after_disc ?? it.rate ?? 0;
-    db.prepare(`INSERT INTO products (company_id, sku, name, hsn, unit, type, ${cfg.priceField}, tax_rate) VALUES (?,?,?,?,?,?,?,?)`)
+    await db.prepare(`INSERT INTO products (company_id, sku, name, hsn, unit, type, ${cfg.priceField}, tax_rate) VALUES (?,?,?,?,?,?,?,?)`)
       .run(companyId, it.item_code, it.description || it.item_code, it.hsn || null, it.unit || 'Nos', type === 'po' ? 'raw' : 'finished', price, tax);
     created++;
   }
@@ -454,7 +455,7 @@ router.get('/template', async (req, res) => {
   });
   head.height = 32;
   const d = new Date();
-  const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.companyId);
+  const company = await db.prepare('SELECT * FROM companies WHERE id = ?').get(req.companyId);
   const sample = [
     { doc_ref: 1, doc_date: d, delivery_date: new Date(d.getTime() + 10 * 864e5), contact_person: 'Mr. Sharma', contact_phone: company.phone || '7300192148', contact_email: company.email || '', place_of_supply: 'Jaipur Rajasthan',
       party_code: `${type === 'po' ? 'V' : 'C'}-001`, party_name: type === 'po' ? 'Shree Steel Suppliers' : 'Rajasthan Engineering Works', party_address: 'Plot 22, VKI Area, Jaipur', party_state: 'Rajasthan', party_state_code: '08', party_gstin: '08ABCDE1234F1Z5', party_phone: '9876543210', party_email: 'accounts@example.com',
@@ -570,7 +571,7 @@ router.post('/import', async (req, res) => {
     if (missing.length) throw new HttpError(400, `Match these required columns: ${missing.map((f) => f.label.replace(' *', '')).join(', ')}`);
     cands = cands.concat(flatToCandidates(up.flat.rows, mapping, type));
   }
-  validate(req.companyId, type, cands, options);
+  await validate(req.companyId, type, cands, options);
   const summary = {
     type, documents: cands.length, valid: cands.filter((c) => !c.errors.length).length,
     docs: cands.map((c) => ({
@@ -581,20 +582,20 @@ router.post('/import', async (req, res) => {
   summary.invalid = summary.documents - summary.valid;
   if (dry_run) return res.json(summary);
 
-  const batchId = db.prepare('INSERT INTO bulk_batches (company_id, doc_type, file_name, total_rows, user_id) VALUES (?,?,?,?,?)')
-    .run(req.companyId, type, up.fileNames, cands.reduce((s, c) => s + c.items.length, 0), req.user.id).lastInsertRowid;
+  const batchId = (await db.prepare('INSERT INTO bulk_batches (company_id, doc_type, file_name, total_rows, user_id) VALUES (?,?,?,?,?)')
+    .run(req.companyId, type, up.fileNames, cands.reduce((s, c) => s + c.items.length, 0), req.user.id)).lastInsertRowid;
   const created = [];
   const failed = cands.filter((c) => c.errors.length).map((c) => ({ source: c.source, errors: c.errors }));
   let partiesCreated = 0, productsCreated = 0;
   for (const c of cands.filter((x) => !x.errors.length)) {
     try {
-      const doc = db.transaction(() => {
+      const doc = await db.transaction(async () => {
         const h = c.header;
-        const { party, created: isNew } = findOrCreateParty(req.companyId, type, h);
+        const { party, created: isNew } = await findOrCreateParty(req.companyId, type, h);
         if (isNew) partiesCreated++;
-        if (options.create_products !== false) productsCreated += ensureProducts(req.companyId, type, c.items);
+        if (options.create_products !== false) productsCreated += await ensureProducts(req.companyId, type, c.items);
         const status = type === 'invoice' ? (options.status === 'draft' ? 'draft' : 'unpaid') : 'draft';
-        const d = createDoc(type, req.companyId, req.user, {
+        const d = await createDoc(type, req.companyId, req.user, {
           doc_no: h.doc_no || '', party_id: party.id, doc_date: h.doc_date || today(), due_date: h.due_date || undefined,
           delivery_date: h.delivery_date || undefined, place_of_supply: h.place_of_supply || undefined,
           contact_person: h.contact_person || undefined, contact_phone: h.contact_phone || undefined, contact_email: h.contact_email || undefined,
@@ -602,22 +603,23 @@ router.post('/import', async (req, res) => {
           remarks: h.remarks || undefined, terms: h.terms || undefined, shipping: c.shipping || 0,
           items: c.items.map(({ __row, ...it }) => it), status,
         }, { source: 'bulk', batchId, status });
-        if (type === 'invoice' && status !== 'draft') applyInvoiceStock(d, -1, req.user.id);
+        if (type === 'invoice' && status !== 'draft') await applyInvoiceStock(d, -1, req.user.id);
         return d;
-      })();
+      });
       created.push({ id: doc.id, doc_no: doc.doc_no, total: doc.total, source: c.source });
     } catch (e) {
       failed.push({ source: c.source, errors: [e.message] });
     }
   }
-  db.prepare('UPDATE bulk_batches SET docs_created = ?, errors = ? WHERE id = ?').run(created.length, JSON.stringify(failed), batchId);
+  await db.prepare('UPDATE bulk_batches SET docs_created = ?, errors = ? WHERE id = ?').run(created.length, JSON.stringify(failed), batchId);
   uploads.delete(uploadId);
   res.json({ type, batchId, created, failed, partiesCreated, productsCreated, label: cfg.label });
 });
 
-router.get('/batches', (req, res) => {
-  res.json(db.prepare(`SELECT b.*, u.name AS user_name FROM bulk_batches b LEFT JOIN users u ON u.id = b.user_id
-    WHERE b.company_id = ? ORDER BY b.id DESC LIMIT 100`).all(req.companyId).map((b) => ({ ...b, errors: b.errors ? JSON.parse(b.errors) : [] })));
+router.get('/batches', async (req, res) => {
+  const rows = await db.prepare(`SELECT b.*, u.name AS user_name FROM bulk_batches b LEFT JOIN users u ON u.id = b.user_id
+    WHERE b.company_id = ? ORDER BY b.id DESC LIMIT 100`).all(req.companyId);
+  res.json(rows.map((b) => ({ ...b, errors: b.errors ? JSON.parse(b.errors) : [] })));
 });
 
 module.exports = router;

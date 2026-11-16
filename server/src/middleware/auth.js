@@ -12,13 +12,13 @@ function signToken(user) {
   return jwt.sign({ uid: user.id, cid: user.company_id }, JWT_SECRET, { expiresIn: '7d' });
 }
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : req.query.token;
   if (!token) return res.status(401).json({ error: 'Not authenticated' });
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    const user = db.prepare('SELECT id, company_id, name, email, role FROM users WHERE id = ?').get(payload.uid);
+    const user = await db.prepare('SELECT id, company_id, name, email, role FROM users WHERE id = ?').get(payload.uid);
     if (!user) return res.status(401).json({ error: 'User not found' });
     req.user = user;
     req.companyId = user.company_id;

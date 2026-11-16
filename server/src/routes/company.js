@@ -23,24 +23,28 @@ const upload = multer({
   fileFilter: (req, file, cb) => cb(null, /image\/(png|jpe?g)/.test(file.mimetype)),
 });
 
-function present(c) {
+async function present(c) {
   return {
     ...c,
     smtp_pass: c.smtp_pass ? '********' : '',
     wa_access_token: c.wa_access_token ? '********' : '',
     whatsapp_api_enabled: waConfigured(c),
-    next_numbers: { invoice: nextDocNo(c.id, 'invoice'), quotation: nextDocNo(c.id, 'quotation'), po: nextDocNo(c.id, 'po') },
+    next_numbers: {
+      invoice: await nextDocNo(c.id, 'invoice'),
+      quotation: await nextDocNo(c.id, 'quotation'),
+      po: await nextDocNo(c.id, 'po'),
+    },
     defaults: { email_subject_template: DEFAULT_SUBJECT, email_body_template: DEFAULT_BODY, whatsapp_template: DEFAULT_WA },
   };
 }
 
-router.get('/', (req, res) => {
-  res.json(present(db.prepare('SELECT * FROM companies WHERE id = ?').get(req.companyId)));
+router.get('/', async (req, res) => {
+  res.json(await present(await db.prepare('SELECT * FROM companies WHERE id = ?').get(req.companyId)));
 });
 
 router.get('/states', (req, res) => res.json(Object.entries(STATES).map(([code, name]) => ({ code, name }))));
 
-router.put('/', requireAdmin, (req, res) => {
+router.put('/', requireAdmin, async (req, res) => {
   const data = req.body || {};
   const sets = [], vals = [];
   for (const f of FIELDS) {
@@ -50,15 +54,15 @@ router.put('/', requireAdmin, (req, res) => {
     vals.push(data[f] === '' ? null : data[f]);
   }
   if (!data.name && 'name' in data) return res.status(400).json({ error: 'Company name is required' });
-  if (sets.length) db.prepare(`UPDATE companies SET ${sets.join(', ')} WHERE id = ?`).run(...vals, req.companyId);
-  const c = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.companyId);
-  db.prepare('UPDATE companies SET state_code = ? WHERE id = ?').run(stateCodeFor(c.state, c.gstin), req.companyId);
-  res.json(present(db.prepare('SELECT * FROM companies WHERE id = ?').get(req.companyId)));
+  if (sets.length) await db.prepare(`UPDATE companies SET ${sets.join(', ')} WHERE id = ?`).run(...vals, req.companyId);
+  const c = await db.prepare('SELECT * FROM companies WHERE id = ?').get(req.companyId);
+  await db.prepare('UPDATE companies SET state_code = ? WHERE id = ?').run(stateCodeFor(c.state, c.gstin), req.companyId);
+  res.json(await present(await db.prepare('SELECT * FROM companies WHERE id = ?').get(req.companyId)));
 });
 
-router.post('/logo', requireAdmin, upload.single('logo'), (req, res) => {
+router.post('/logo', requireAdmin, upload.single('logo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PNG or JPG image under 2MB' });
-  db.prepare('UPDATE companies SET logo_path = ? WHERE id = ?').run(req.file.filename, req.companyId);
+  await db.prepare('UPDATE companies SET logo_path = ? WHERE id = ?').run(req.file.filename, req.companyId);
   res.json({ logo_path: req.file.filename });
 });
 

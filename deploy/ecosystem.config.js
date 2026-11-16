@@ -14,7 +14,7 @@ module.exports = {
       uid: 'clientinvoice',
       gid: 'clientinvoice',
       exec_mode: 'fork',
-      instances: 1, // SQLite: keep a single process
+      instances: 1,
       autorestart: true,
       max_memory_restart: '500M',
       env: { NODE_ENV: 'production' },

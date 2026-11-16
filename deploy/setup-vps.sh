@@ -29,7 +29,12 @@ if [ -n "${DOMAIN:-}" ] && [ -z "${EMAIL:-}" ]; then echo "Set EMAIL=you@example
 log "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y curl git nginx build-essential python3 sqlite3 ufw ca-certificates gnupg
+apt-get install -y curl git nginx build-essential python3 ufw ca-certificates gnupg
+# MySQL client for backups / admin. Server itself should already be installed on this VPS.
+apt-get install -y mysql-client || apt-get install -y default-mysql-client || true
+if ! command -v mysql >/dev/null; then
+  echo "!! mysql client/server not found. Install MySQL/MariaDB on this VPS first, then re-run."; exit 1
+fi
 
 # The app needs Node 24+. If the system Node is older, install a private copy under /opt/node24
 # instead of upgrading the system one, so other apps on the same server are not affected.
@@ -64,6 +69,24 @@ else
   git -c safe.directory="$APP_DIR" -C "$APP_DIR" remote set-url origin "$REPO"   # never keep the token on disk
 fi
 
+log "Configuring MySQL database (uses existing MySQL on this VPS)"
+MYSQL_HOST="${MYSQL_HOST:-127.0.0.1}"
+MYSQL_PORT="${MYSQL_PORT:-3306}"
+MYSQL_DATABASE="${MYSQL_DATABASE:-clientinvoice}"
+MYSQL_USER="${MYSQL_USER:-clientinvoice}"
+if [ -z "${MYSQL_PASSWORD:-}" ]; then MYSQL_PASSWORD=$(openssl rand -hex 16); fi
+# Create DB + user via local root socket (typical Ubuntu mysql packaging)
+mysql --protocol=socket -uroot <<SQL
+CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'localhost' IDENTIFIED BY '${MYSQL_PASSWORD}';
+CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'127.0.0.1' IDENTIFIED BY '${MYSQL_PASSWORD}';
+ALTER USER '${MYSQL_USER}'@'localhost' IDENTIFIED BY '${MYSQL_PASSWORD}';
+ALTER USER '${MYSQL_USER}'@'127.0.0.1' IDENTIFIED BY '${MYSQL_PASSWORD}';
+GRANT ALL PRIVILEGES ON \`${MYSQL_DATABASE}\`.* TO '${MYSQL_USER}'@'localhost';
+GRANT ALL PRIVILEGES ON \`${MYSQL_DATABASE}\`.* TO '${MYSQL_USER}'@'127.0.0.1';
+FLUSH PRIVILEGES;
+SQL
+
 log "Configuring server/.env"
 ENV_FILE="$APP_DIR/server/.env"
 if [ -n "${DOMAIN:-}" ]; then PUBLIC_URL="https://$DOMAIN"; else PUBLIC_URL="http://$(curl -fsS https://api.ipify.org || hostname -I | awk '{print $1}')"; fi
@@ -75,9 +98,22 @@ HOST=127.0.0.1
 JWT_SECRET=$(openssl rand -hex 32)
 PUBLIC_URL=$PUBLIC_URL
 DATA_DIR=$DATA_DIR
+MYSQL_HOST=$MYSQL_HOST
+MYSQL_PORT=$MYSQL_PORT
+MYSQL_USER=$MYSQL_USER
+MYSQL_PASSWORD=$MYSQL_PASSWORD
+MYSQL_DATABASE=$MYSQL_DATABASE
 ENV
 else
   sed -i "s#^PUBLIC_URL=.*#PUBLIC_URL=$PUBLIC_URL#" "$ENV_FILE"
+  grep -q '^MYSQL_HOST=' "$ENV_FILE" || cat >> "$ENV_FILE" <<ENV
+
+MYSQL_HOST=$MYSQL_HOST
+MYSQL_PORT=$MYSQL_PORT
+MYSQL_USER=$MYSQL_USER
+MYSQL_PASSWORD=$MYSQL_PASSWORD
+MYSQL_DATABASE=$MYSQL_DATABASE
+ENV
 fi
 chmod 600 "$ENV_FILE"
 
@@ -159,13 +195,20 @@ if [ -n "${DOMAIN:-}" ]; then
     echo "!! Certificate failed. Check that $DOMAIN's DNS A record points to this server, then run: certbot --nginx -d $DOMAIN"
 fi
 
-log "Daily database backup (02:30, keeps 14 days)"
+log "Daily database backup (keeps 14 days)"
 cat > /etc/cron.daily/clientinvoice-backup <<'CRON'
 #!/bin/sh
 set -e
 TS=$(date +%F)
-sqlite3 /var/lib/clientinvoice/app.db ".backup '/var/backups/clientinvoice/app-$TS.db'"
-tar -czf /var/backups/clientinvoice/uploads-$TS.tgz -C /var/lib/clientinvoice uploads
+ENV_FILE=/opt/clientinvoice/server/.env
+# shellcheck disable=SC1090
+set -a; . "$ENV_FILE"; set +a
+mysqldump --single-transaction --routines --triggers \
+  -h"${MYSQL_HOST:-127.0.0.1}" -P"${MYSQL_PORT:-3306}" \
+  -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" \
+  > "/var/backups/clientinvoice/app-$TS.sql"
+gzip -f "/var/backups/clientinvoice/app-$TS.sql"
+tar -czf /var/backups/clientinvoice/uploads-$TS.tgz -C /var/lib/clientinvoice uploads 2>/dev/null || true
 find /var/backups/clientinvoice -type f -mtime +14 -delete
 CRON
 chmod +x /etc/cron.daily/clientinvoice-backup

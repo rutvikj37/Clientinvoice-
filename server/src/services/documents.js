@@ -28,7 +28,7 @@ const kindOf = (k) => {
   return cfg;
 };
 
-const getCompany = (companyId) => db.prepare('SELECT * FROM companies WHERE id = ?').get(companyId);
+const getCompany = async (companyId) => db.prepare('SELECT * FROM companies WHERE id = ?').get(companyId);
 
 /** Indian financial year (Apr–Mar) label, e.g. 2026-27 */
 function financialYear(dateStr = today()) {
@@ -38,11 +38,11 @@ function financialYear(dateStr = today()) {
 }
 
 /** Next number for prefix like "MCH/{FY}/" -> MCH/2026-27/004. Sequence restarts each FY because the prefix changes. */
-function nextDocNo(companyId, kind, dateStr) {
+async function nextDocNo(companyId, kind, dateStr) {
   const cfg = kindOf(kind);
-  const company = getCompany(companyId);
+  const company = await getCompany(companyId);
   const prefix = String(company[cfg.prefix] || '').replace(/\{FY\}/g, financialYear(dateStr || today()));
-  const rows = db.prepare(`SELECT doc_no FROM ${cfg.table} WHERE company_id = ? AND substr(doc_no, 1, ?) = ?`).all(companyId, prefix.length, prefix);
+  const rows = await db.prepare(`SELECT doc_no FROM ${cfg.table} WHERE company_id = ? AND SUBSTRING(doc_no, 1, ?) = ?`).all(companyId, prefix.length, prefix);
   let max = 0;
   for (const r of rows) {
     const n = Number(r.doc_no.slice(prefix.length));
@@ -64,13 +64,15 @@ function isInterstate(company, party) {
  *  - price_after_disc (template "Price Af Disc") -> derives discount %
  *  - cgst_rate + sgst_rate or igst_rate (template columns) -> tax_rate
  */
-function normaliseItems(companyId, kind, items) {
+async function normaliseItems(companyId, kind, items) {
   const cfg = kindOf(kind);
   if (!Array.isArray(items) || !items.length) throw new HttpError(400, 'Add at least one line item');
-  return items.map((it, i) => {
+  const out = [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
     let product = null;
-    if (it.product_id) product = db.prepare('SELECT * FROM products WHERE id = ? AND company_id = ?').get(it.product_id, companyId);
-    if (!product && it.item_code) product = db.prepare('SELECT * FROM products WHERE company_id = ? AND sku = ?').get(companyId, String(it.item_code).trim());
+    if (it.product_id) product = await db.prepare('SELECT * FROM products WHERE id = ? AND company_id = ?').get(it.product_id, companyId);
+    if (!product && it.item_code) product = await db.prepare('SELECT * FROM products WHERE company_id = ? AND sku = ?').get(companyId, String(it.item_code).trim());
     const description = (it.description || '').trim() || product?.name;
     if (!description) throw new HttpError(400, `Line ${i + 1}: item description is required`);
     const qty = Number(it.qty);
@@ -84,30 +86,34 @@ function normaliseItems(companyId, kind, items) {
     if (tax === null && has(it.igst_rate)) tax = Number(it.igst_rate);
     if (tax === null) tax = Number(product?.tax_rate || 0);
     if ([rate, discount, tax].some((n) => Number.isNaN(n))) throw new HttpError(400, `Line ${i + 1}: price, discount and GST must be numbers`);
-    return {
+    out.push({
       product_id: product?.id || null,
       item_code: (it.item_code || product?.sku || '') || null,
       description,
       hsn: (has(it.hsn) ? String(it.hsn) : product?.hsn) || null,
       unit: it.unit || product?.unit || 'Nos',
       qty, rate, discount_pct: discount, tax_rate: tax,
-    };
-  });
+    });
+  }
+  return out;
 }
 
-function insertItems(cfg, docId, lines) {
+async function insertItems(cfg, docId, lines) {
   const stmt = db.prepare(`INSERT INTO ${cfg.items}
     (doc_id, product_id, item_code, description, hsn, unit, qty, rate, discount_pct, tax_rate, taxable_amount, tax_amount, amount, sort)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
-  lines.forEach((l, i) => stmt.run(docId, l.product_id, l.item_code, l.description, l.hsn, l.unit, l.qty, l.rate,
-    l.discount_pct, l.tax_rate, l.taxable_amount, l.tax_amount, l.amount, i));
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    await stmt.run(docId, l.product_id, l.item_code, l.description, l.hsn, l.unit, l.qty, l.rate,
+      l.discount_pct, l.tax_rate, l.taxable_amount, l.tax_amount, l.amount, i);
+  }
 }
 
 const HEADER_FIELDS = ['doc_date', 'due_date', 'delivery_date', 'place_of_supply', 'contact_person', 'contact_phone', 'contact_email',
   'payment_terms', 'transport', 'reference', 'remarks', 'terms'];
 
-function resolveParty(companyId, cfg, partyId) {
-  const party = db.prepare(`SELECT * FROM ${cfg.party} WHERE id = ? AND company_id = ?`).get(partyId, companyId);
+async function resolveParty(companyId, cfg, partyId) {
+  const party = await db.prepare(`SELECT * FROM ${cfg.party} WHERE id = ? AND company_id = ?`).get(partyId, companyId);
   if (!party) throw new HttpError(400, `Select a valid ${cfg.partyLabel.toLowerCase()}`);
   return party;
 }
@@ -128,7 +134,6 @@ function buildHeader(kind, company, party, data, existing, user) {
     h.contact_email = h.contact_email ?? company.email ?? null;
     h.terms = h.terms ?? company[cfg.termsField] ?? null;
     if (!h.place_of_supply) {
-      // Prefer company default (Quotation Template: "Ex- Works Jaipur"); else party city/state.
       h.place_of_supply = company.default_place_of_supply
         || [party.city, party.state || STATES[partyStateCode(party)]].filter(Boolean).join(' ')
         || null;
@@ -137,19 +142,19 @@ function buildHeader(kind, company, party, data, existing, user) {
   return h;
 }
 
-function createDoc(kind, companyId, user, data, { source = 'manual', batchId = null, status } = {}) {
+async function createDoc(kind, companyId, user, data, { source = 'manual', batchId = null, status } = {}) {
   const cfg = kindOf(kind);
-  const company = getCompany(companyId);
-  const party = resolveParty(companyId, cfg, data.party_id);
-  const items = normaliseItems(companyId, kind, data.items);
+  const company = await getCompany(companyId);
+  const party = await resolveParty(companyId, cfg, data.party_id);
+  const items = await normaliseItems(companyId, kind, data.items);
   const interstate = isInterstate(company, party);
   const t = computeTotals(items, { interstate, shipping: data.shipping, roundOff: kind !== 'po' });
   const h = buildHeader(kind, company, party, data, null, user);
   let docNo = String(data.doc_no || '').trim();
   if (docNo) {
-    if (db.prepare(`SELECT 1 FROM ${cfg.table} WHERE company_id = ? AND doc_no = ?`).get(companyId, docNo))
+    if (await db.prepare(`SELECT 1 FROM ${cfg.table} WHERE company_id = ? AND doc_no = ?`).get(companyId, docNo))
       throw new HttpError(409, `${cfg.label} number ${docNo} already exists`);
-  } else docNo = nextDocNo(companyId, kind, h.doc_date);
+  } else docNo = await nextDocNo(companyId, kind, h.doc_date);
   const st = status || (data.status === 'draft' ? 'draft' : cfg.defaultStatus);
 
   const cols = ['company_id', 'doc_no', 'party_id', 'status', 'is_interstate', ...HEADER_FIELDS,
@@ -163,55 +168,55 @@ function createDoc(kind, companyId, user, data, { source = 'manual', batchId = n
     vals.push(data.delivery_address || [company.address, company.city, company.state, company.pincode].filter(Boolean).join(', ') || null);
   }
   if (kind === 'invoice' && data.quotation_id) { cols.push('quotation_id'); vals.push(data.quotation_id); }
-  const info = db.prepare(`INSERT INTO ${cfg.table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
-  insertItems(cfg, info.lastInsertRowid, t.lines);
-  logActivity(companyId, cfg.entity, info.lastInsertRowid, 'created', source === 'bulk' ? 'Created from Excel upload' : null, user?.id);
+  const info = await db.prepare(`INSERT INTO ${cfg.table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
+  await insertItems(cfg, info.lastInsertRowid, t.lines);
+  await logActivity(companyId, cfg.entity, info.lastInsertRowid, 'created', source === 'bulk' ? 'Created from Excel upload' : null, user?.id);
   return db.prepare(`SELECT * FROM ${cfg.table} WHERE id = ?`).get(info.lastInsertRowid);
 }
 
-function updateDoc(kind, companyId, user, id, data, { beforeSave } = {}) {
+async function updateDoc(kind, companyId, user, id, data, { beforeSave } = {}) {
   const cfg = kindOf(kind);
-  const doc = db.prepare(`SELECT * FROM ${cfg.table} WHERE id = ? AND company_id = ?`).get(id, companyId);
+  const doc = await db.prepare(`SELECT * FROM ${cfg.table} WHERE id = ? AND company_id = ?`).get(id, companyId);
   if (!doc) throw new HttpError(404, `${cfg.label} not found`);
   if (!cfg.editable(doc)) throw new HttpError(400, `This ${cfg.label.toLowerCase()} can no longer be edited (status: ${doc.status.replace(/_/g, ' ')})`);
-  const company = getCompany(companyId);
-  const party = resolveParty(companyId, cfg, data.party_id || doc.party_id);
-  const items = normaliseItems(companyId, kind, data.items);
+  const company = await getCompany(companyId);
+  const party = await resolveParty(companyId, cfg, data.party_id || doc.party_id);
+  const items = await normaliseItems(companyId, kind, data.items);
   const interstate = isInterstate(company, party);
   const t = computeTotals(items, { interstate, shipping: data.shipping ?? doc.shipping, roundOff: kind !== 'po' });
   const h = buildHeader(kind, company, party, data, doc, user);
   const docNo = String(data.doc_no || doc.doc_no).trim();
-  if (docNo !== doc.doc_no && db.prepare(`SELECT 1 FROM ${cfg.table} WHERE company_id = ? AND doc_no = ?`).get(companyId, docNo))
+  if (docNo !== doc.doc_no && await db.prepare(`SELECT 1 FROM ${cfg.table} WHERE company_id = ? AND doc_no = ?`).get(companyId, docNo))
     throw new HttpError(409, `${cfg.label} number ${docNo} already exists`);
-  if (beforeSave) beforeSave(doc);
+  if (beforeSave) await beforeSave(doc);
   const sets = ['doc_no = ?', 'party_id = ?', 'is_interstate = ?', ...HEADER_FIELDS.map((f) => `${f} = ?`),
     'subtotal = ?', 'discount_total = ?', 'taxable_total = ?', 'cgst = ?', 'sgst = ?', 'igst = ?', 'tax_total = ?', 'shipping = ?', 'round_off = ?', 'total = ?',
     'updated_at = CURRENT_TIMESTAMP'];
   const vals = [docNo, party.id, interstate ? 1 : 0, ...HEADER_FIELDS.map((f) => h[f] ?? null),
     t.subtotal, t.discount_total, t.taxable_total, t.cgst, t.sgst, t.igst, t.tax_total, t.shipping, t.round_off, t.total];
   if (kind === 'po' && data.delivery_address !== undefined) { sets.push('delivery_address = ?'); vals.push(data.delivery_address || null); }
-  db.prepare(`UPDATE ${cfg.table} SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
-  db.prepare(`DELETE FROM ${cfg.items} WHERE doc_id = ?`).run(id);
-  insertItems(cfg, id, t.lines);
-  logActivity(companyId, cfg.entity, id, 'updated', null, user?.id);
+  await db.prepare(`UPDATE ${cfg.table} SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+  await db.prepare(`DELETE FROM ${cfg.items} WHERE doc_id = ?`).run(id);
+  await insertItems(cfg, id, t.lines);
+  await logActivity(companyId, cfg.entity, id, 'updated', null, user?.id);
   return db.prepare(`SELECT * FROM ${cfg.table} WHERE id = ?`).get(id);
 }
 
-function getDoc(kind, companyId, id) {
+async function getDoc(kind, companyId, id) {
   const cfg = kindOf(kind);
-  const doc = db.prepare(`SELECT * FROM ${cfg.table} WHERE id = ? AND company_id = ?`).get(id, companyId);
+  const doc = await db.prepare(`SELECT * FROM ${cfg.table} WHERE id = ? AND company_id = ?`).get(id, companyId);
   if (!doc) return null;
   doc.kind = kind;
-  doc.items = db.prepare(`SELECT it.*, p.stock_qty FROM ${cfg.items} it LEFT JOIN products p ON p.id = it.product_id WHERE it.doc_id = ? ORDER BY it.sort, it.id`).all(id);
-  doc.party = db.prepare(`SELECT * FROM ${cfg.party} WHERE id = ?`).get(doc.party_id);
-  doc.activity = db.prepare(`SELECT a.*, u.name AS user_name FROM activity a LEFT JOIN users u ON u.id = a.user_id
+  doc.items = await db.prepare(`SELECT it.*, p.stock_qty FROM ${cfg.items} it LEFT JOIN products p ON p.id = it.product_id WHERE it.doc_id = ? ORDER BY it.sort, it.id`).all(id);
+  doc.party = await db.prepare(`SELECT * FROM ${cfg.party} WHERE id = ?`).get(doc.party_id);
+  doc.activity = await db.prepare(`SELECT a.*, u.name AS user_name FROM activity a LEFT JOIN users u ON u.id = a.user_id
     WHERE a.entity = ? AND a.entity_id = ? ORDER BY a.id DESC`).all(cfg.entity, id);
   doc.editable = cfg.editable(doc);
   return doc;
 }
 
 /** Base list query: returns rows with party name + contact */
-function listDocs(kind, companyId, { status, party_id, from, to, q, batch_id }, extraWhere = '', extraParams = []) {
+async function listDocs(kind, companyId, { status, party_id, from, to, q, batch_id }, extraWhere = '', extraParams = []) {
   const cfg = kindOf(kind);
   let where = 'd.company_id = ?';
   const params = [companyId];

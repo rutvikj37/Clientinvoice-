@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
-const { DATA_DIR } = require('./db');
+const { DATA_DIR, initDb } = require('./db');
 const { requireAuth } = require('./middleware/auth');
 const partyRouter = require('./routes/parties');
 
@@ -52,4 +52,6 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, process.env.HOST || '127.0.0.1', () => console.log(`API running on http://${process.env.HOST || '127.0.0.1'}:${PORT}`));
+initDb().then(() => {
+  app.listen(PORT, process.env.HOST || '127.0.0.1', () => console.log(`API running on http://${process.env.HOST || '127.0.0.1'}:${PORT}`));
+}).catch((err) => { console.error('DB init failed', err); process.exit(1); });

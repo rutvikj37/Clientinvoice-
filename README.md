@@ -21,12 +21,13 @@ Document fields and the PDF layout follow the client's own PO / Quotation Excel 
 
 ## Tech stack
 
-- **Server:** Node.js 20+ · Express 5 · SQLite (better-sqlite3) · PDFKit · ExcelJS · Nodemailer · JWT
+- **Server:** Node.js 24+ · Express 5 · MySQL 8 · PDFKit · ExcelJS · Nodemailer · JWT
 - **Client:** React 18 · Vite · React Router
 
 ## Run locally
 
 ```bash
+docker compose up -d         # MySQL 8 on localhost:3306 (user/db/pass: clientinvoice)
 npm run install:all          # install server + client deps
 cp server/.env.example server/.env
 npm run seed                 # optional demo data → admin@gmail.com / admin123
@@ -44,7 +45,7 @@ curl -fsSL https://raw.githubusercontent.com/rutvikj37/Clientinvoice-/main/deplo
 sudo DOMAIN=invoice.yourcompany.com EMAIL=you@yourcompany.com bash setup.sh
 ```
 
-This installs Node.js 24, builds the app, runs it as a `systemd` service (auto-restart and start on boot) behind **Nginx**, gets a free **HTTPS** certificate, enables the firewall and sets up **daily backups** to `/var/backups/clientinvoice` (kept 14 days). A random `JWT_SECRET` is generated in `/opt/clientinvoice/server/.env`.
+Requires **MySQL already running** on the VPS (the script creates database/user `clientinvoice`, does not reinstall MySQL). It installs Node.js 24 if needed, builds the app, runs it as a `systemd` service behind **Nginx**, gets a free **HTTPS** certificate, and sets up **daily `mysqldump` backups** in `/var/backups/clientinvoice` (kept 14 days).
 
 No domain yet? Run `sudo bash setup.sh` and the app is served on `http://<server-ip>`. Run it again later with `DOMAIN=` and `EMAIL=` to add HTTPS.
 Private repo? Add `GITHUB_TOKEN=<read-only token>` to the command.
@@ -58,8 +59,9 @@ Private repo? Add `GITHUB_TOKEN=<read-only token>` to the command.
 | Restart | `pm2 restart clientinvoice` (systemd install: `sudo systemctl restart clientinvoice`) |
 | Run under pm2 instead of systemd | `sudo systemctl disable --now clientinvoice && sudo pm2 start /opt/clientinvoice/deploy/ecosystem.config.js && sudo pm2 save` |
 | Manual backup | `sudo /etc/cron.daily/clientinvoice-backup` |
+| Migrate old SQLite → MySQL | `cd /opt/clientinvoice/server && node scripts/migrate-sqlite-to-mysql.js /var/lib/clientinvoice/app.db` |
 
-Data (SQLite DB + uploaded logos) lives in `/var/lib/clientinvoice`.
+Uploads live in `/var/lib/clientinvoice`; structured data lives in the MySQL database `clientinvoice`.
 
 ## Excel bulk upload: columns
 
