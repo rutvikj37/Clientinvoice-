@@ -203,7 +203,7 @@ TS=$(date +%F)
 ENV_FILE=/opt/clientinvoice/server/.env
 # shellcheck disable=SC1090
 set -a; . "$ENV_FILE"; set +a
-mysqldump --single-transaction --routines --triggers \
+mysqldump --single-transaction --no-tablespaces --routines --triggers \
   -h"${MYSQL_HOST:-127.0.0.1}" -P"${MYSQL_PORT:-3306}" \
   -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" \
   > "/var/backups/clientinvoice/app-$TS.sql"
