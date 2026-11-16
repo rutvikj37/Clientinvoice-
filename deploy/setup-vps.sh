@@ -11,7 +11,6 @@
 #   BRANCH        default main
 #   GITHUB_TOKEN  only if the repo is private (fine-grained token with read access to this repo)
 #   PORT          internal app port, default 4000
-#   SEED_DEMO=1   load demo data (admin@motioncrest.test / demo123), for testing only
 set -euo pipefail
 
 REPO="${REPO:-https://github.com/rutvikj37/Clientinvoice-.git}"
@@ -86,7 +85,8 @@ log "Installing dependencies and building the web app"
 chown -R "$APP_USER:$APP_USER" "$APP_DIR" "$DATA_DIR"
 sudo -u "$APP_USER" -H env PATH="$PATH" bash -c "cd '$APP_DIR/server' && npm ci --omit=dev --no-audit --no-fund"
 sudo -u "$APP_USER" -H env PATH="$PATH" bash -c "cd '$APP_DIR/client' && npm ci --no-audit --no-fund && npm run build"
-if [ "${SEED_DEMO:-0}" = "1" ]; then sudo -u "$APP_USER" -H env PATH="$PATH" bash -c "cd '$APP_DIR/server' && node src/seed.js"; fi
+# Creates the company and the admin login (admin@gmail.com / admin123) if it does not exist yet
+sudo -u "$APP_USER" -H env PATH="$PATH" bash -c "cd '$APP_DIR/server' && node src/seed.js"
 
 log "Creating systemd service"
 cat > /etc/systemd/system/$SERVICE.service <<UNIT
@@ -173,7 +173,7 @@ chmod +x /etc/cron.daily/clientinvoice-backup
 sleep 2
 if curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null; then
   echo -e "\n\033[1;32m✔ Live at $PUBLIC_URL\033[0m"
-  echo "  Open it and click 'Create an account' to make the first admin (sign-up closes after that)."
+  echo "  Sign in with admin@gmail.com / admin123, change the password in Settings, and add users from Settings → Team."
   echo "  Logs:    journalctl -u $SERVICE -f"
   echo "  Update:  sudo bash $APP_DIR/deploy/update.sh"
 else

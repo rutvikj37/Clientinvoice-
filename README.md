@@ -49,7 +49,7 @@ This installs Node.js 24, builds the app, runs it as a `systemd` service (auto-r
 No domain yet? Run `sudo bash setup.sh` and the app is served on `http://<server-ip>`. Run it again later with `DOMAIN=` and `EMAIL=` to add HTTPS.
 Private repo? Add `GITHUB_TOKEN=<read-only token>` to the command.
 
-3. Open the site and **Create an account**. This first user becomes the admin, and public sign-up then closes; add staff from **Settings → Team**. To keep sign-up open, set `ALLOW_REGISTRATION=true` in `server/.env`.
+3. Sign in with **admin@gmail.com / admin123**, change the password in **Settings**, and add users from **Settings → Team**. There is no public sign-up (set `ALLOW_REGISTRATION=true` in `server/.env` to allow it).
 
 | Task | Command |
 |---|---|

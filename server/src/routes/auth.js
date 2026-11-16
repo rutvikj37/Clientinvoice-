@@ -5,9 +5,9 @@ const { signToken, requireAuth, requireAdmin } = require('../middleware/auth');
 
 const publicUser = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, company_id: u.company_id });
 
-// Public sign-up is allowed only for the very first account, unless ALLOW_REGISTRATION=true.
-// After that, admins add their team from Settings → Team.
-const registrationOpen = () => process.env.ALLOW_REGISTRATION === 'true' || !db.prepare('SELECT 1 FROM users LIMIT 1').get();
+// No public sign-up: the admin account comes from `npm run seed` (admin@gmail.com / admin123)
+// and admins add their team from Settings → Team. Set ALLOW_REGISTRATION=true to reopen it.
+const registrationOpen = () => process.env.ALLOW_REGISTRATION === 'true';
 router.get('/registration', (req, res) => res.json({ open: registrationOpen() }));
 
 router.post('/register', (req, res) => {
