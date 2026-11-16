@@ -6,8 +6,11 @@ module.exports = {
     {
       name: 'clientinvoice',
       cwd: '/opt/clientinvoice/server',
-      script: 'src/index.js',
-      interpreter: '/opt/node24/bin/node', // the app needs Node 24+; pm2 itself can run on an older Node
+      // Launch Node 24 directly (the app needs 24+; pm2 itself may run on another Node). Going through
+      // pm2's own wrapper would fail because the app user cannot read pm2's install under /root.
+      script: '/opt/node24/bin/node',
+      args: 'src/index.js',
+      interpreter: 'none',
       uid: 'clientinvoice',
       gid: 'clientinvoice',
       exec_mode: 'fork',
