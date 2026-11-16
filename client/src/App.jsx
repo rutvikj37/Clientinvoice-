@@ -63,21 +63,32 @@ function Layout({ children }) {
               </>
             )}
         </div>
-        <nav>
+        <nav className="sidebar-nav" aria-label="Main">
           {NAV.map((n, i) => {
             if (n.section) return <div key={i} className="nav-section">{n.section}</div>;
             const Icon = n.icon;
             return (
-              <NavLink key={n.to} to={n.to} end={n.end} className="nav-link">
+              <NavLink
+                key={n.to}
+                to={n.to}
+                end={n.end}
+                className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+              >
                 <span className="nav-icon" aria-hidden="true"><Icon /></span>
-                {n.label}
+                <span className="nav-label">{n.label}</span>
               </NavLink>
             );
           })}
         </nav>
         <div className="sidebar-foot">
-          <div className="user"><div className="avatar">{user?.name?.[0]}</div><div><div>{user?.name}</div><div className="muted small">{user?.role}</div></div></div>
-          <button className="btn btn-ghost btn-sm" onClick={logout}>Log out</button>
+          <div className="user">
+            <div className="avatar">{user?.name?.[0]}</div>
+            <div className="user-meta">
+              <div className="user-name">{user?.name}</div>
+              <div className="user-role">{user?.role}</div>
+            </div>
+          </div>
+          <button type="button" className="sidebar-logout" onClick={logout}>Log out</button>
         </div>
       </aside>
       {open && <div className="scrim" onClick={() => setOpen(false)} />}
