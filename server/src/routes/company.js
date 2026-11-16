@@ -3,9 +3,9 @@ const path = require('path');
 const multer = require('multer');
 const { db, DATA_DIR } = require('../db');
 const { requireAdmin } = require('../middleware/auth');
-const { stateCodeFor, STATES } = require('../services/util');
+const { stateCodeFor, STATES, HttpError } = require('../services/util');
 const { DEFAULT_SUBJECT, DEFAULT_BODY, DEFAULT_WA, waConfigured } = require('../services/messaging');
-const { nextDocNo } = require('../services/documents');
+const { nextDocNo, resetDocSequence, KINDS } = require('../services/documents');
 
 const FIELDS = ['name', 'legal_name', 'gstin', 'pan', 'address', 'city', 'state', 'pincode', 'country', 'phone', 'email', 'website', 'tagline',
   'bank_name', 'bank_account', 'bank_ifsc', 'bank_branch', 'upi_id', 'currency',
@@ -64,6 +64,15 @@ router.post('/logo', requireAdmin, upload.single('logo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PNG or JPG image under 2MB' });
   await db.prepare('UPDATE companies SET logo_path = ? WHERE id = ?').run(req.file.filename, req.companyId);
   res.json({ logo_path: req.file.filename });
+});
+
+/** Reset invoice / quotation / PO number sequence so the next auto number starts from 001. */
+router.post('/reset-sequence', requireAdmin, async (req, res) => {
+  const kind = String(req.body?.kind || '');
+  if (!KINDS[kind]) throw new HttpError(400, 'kind must be invoice, quotation, or po');
+  const next = await resetDocSequence(req.companyId, kind);
+  const company = await present(await db.prepare('SELECT * FROM companies WHERE id = ?').get(req.companyId));
+  res.json({ ok: true, kind, next, company });
 });
 
 module.exports = router;

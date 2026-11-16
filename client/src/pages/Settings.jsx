@@ -58,7 +58,7 @@ export default function Settings() {
             <SaveBtn />
           </>)}
           {tab === 'documents' && (<>
-            <p className="muted small">Use <code>{'{FY}'}</code> for the financial year (e.g. 2026-27). Numbering restarts at 001 every April.</p>
+            <p className="muted small">Document numbers are assigned automatically from these prefixes — use <code>{'{FY}'}</code> for the financial year (e.g. 2026-27). Numbering restarts at 001 every April when the FY changes.</p>
             <div className="form-grid cols-3">
               <Field label="Invoice prefix" hint={`Next: ${c.next_numbers?.invoice}`}><input value={c.invoice_prefix || ''} onChange={set('invoice_prefix')} /></Field>
               <Field label="Quotation prefix" hint={`Next: ${c.next_numbers?.quotation}`}><input value={c.quote_prefix || ''} onChange={set('quote_prefix')} /></Field>
@@ -74,6 +74,48 @@ export default function Settings() {
               <Field label="PO general conditions" span={3}><textarea rows={3} value={c.po_terms || ''} onChange={set('po_terms')} /></Field>
             </div>
             <label className="check-row"><input type="checkbox" checked={!!c.po_approval_required} onChange={set('po_approval_required')} /> Purchase orders need admin approval before they can be sent</label>
+
+            {isAdmin && (
+              <div className="seq-reset-box">
+                <h4>Reset number sequence</h4>
+                <p className="muted small">
+                  Use this when going live so the next document starts from <code>…/001</code>.
+                  Existing documents keep their numbers. If <code>001</code> already exists, the next free number is used — delete test documents first if you need a clean <code>001</code>.
+                </p>
+                <div className="seq-reset-actions">
+                  {[
+                    ['invoice', 'Invoices', c.next_numbers?.invoice],
+                    ['quotation', 'Quotations', c.next_numbers?.quotation],
+                    ['po', 'Purchase orders', c.next_numbers?.po],
+                  ].map(([kind, label, next]) => (
+                    <div key={kind} className="seq-reset-row">
+                      <div>
+                        <b>{label}</b>
+                        <div className="muted small">Next would be {next || '—'}</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        disabled={saving}
+                        onClick={async () => {
+                          if (!confirm(`Reset ${label.toLowerCase()} sequence to start from 001?\n\nNext new document will use the first free number from 001.`)) return;
+                          setSaving(true);
+                          try {
+                            const r = await api.post('/company/reset-sequence', { kind });
+                            setC(r.company);
+                            toast(`${label} sequence reset. Next: ${r.next}`);
+                            refresh();
+                          } catch (e) { toast(e.message, 'error'); }
+                          finally { setSaving(false); }
+                        }}
+                      >
+                        Reset to 001
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <SaveBtn />
           </>)}
           {tab === 'bank' && (<>

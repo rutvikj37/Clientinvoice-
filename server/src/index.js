@@ -34,6 +34,7 @@ app.use('/api/bulk', requireAuth, require('./routes/bulk'));
 app.use('/api/quotations', requireAuth, require('./routes/quotations'));
 app.use('/api/purchase-orders', requireAuth, require('./routes/purchaseOrders'));
 app.use('/api/dashboard', requireAuth, require('./routes/dashboard'));
+app.use('/api/tasks', requireAuth, require('./routes/tasks'));
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 

@@ -160,6 +160,40 @@ function renderHeader(doc, kind, company, d) {
     doc.font('Helvetica').text(d.delivery_address, L + 90, y + 4, { width: W - 100 });
     y += h;
   }
+
+  // E-way bill block (invoices only — recorded from GST portal)
+  if (kind === 'invoice' && (d.eway_bill_no || d.vehicle_no || d.transporter_name || d.transporter_gstin)) {
+    box(doc, L, y, W, 14, HEAD_BG);
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#000')
+      .text('E-way Bill :', L + 6, y + 3.5);
+    y += 14;
+    const left = [
+      ['E-way Bill No.', d.eway_bill_no || ''],
+      ['E-way Bill Date', fmtDate(d.eway_bill_date)],
+      ['Valid Upto', fmtDate(d.eway_valid_upto)],
+      ['Vehicle No.', d.vehicle_no || ''],
+    ];
+    const right = [
+      ['Transporter', d.transporter_name || ''],
+      ['Transporter GSTIN', d.transporter_gstin || ''],
+      ['Transporter ID', d.transporter_id || ''],
+      ['Approx. Distance', d.approx_distance_km != null && d.approx_distance_km !== '' ? `${d.approx_distance_km} km` : ''],
+    ];
+    const el = kvRows(doc, L + 6, y + 5, left, { labelW: 92, w: half - 10, size: 8 });
+    const er = kvRows(doc, L + half + 6, y + 5, right, { labelW: 100, w: W - half - 10, size: 8 });
+    const colsBottom = Math.max(el, er);
+    let bottom = colsBottom;
+    if (d.dispatch_from || d.ship_to) {
+      const extra = [];
+      if (d.dispatch_from) extra.push(['Dispatch From', d.dispatch_from]);
+      if (d.ship_to) extra.push(['Ship To', d.ship_to]);
+      bottom = kvRows(doc, L + 6, colsBottom + 2, extra, { labelW: 92, w: W - 12, size: 8 });
+    }
+    const ewayH = bottom - y + 3;
+    box(doc, L, y, W, ewayH);
+    doc.moveTo(L + half, y).lineTo(L + half, colsBottom + 1).stroke();
+    y += ewayH;
+  }
   return y;
 }
 

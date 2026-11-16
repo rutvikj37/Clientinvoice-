@@ -89,7 +89,7 @@ export default function BulkUpload() {
             <div className="howto">
               <div>
                 <b>1. Bulk sheet (many invoices in one file)</b>
-                <p className="muted small">Download the sheet → fill one row per item (Doc No., Date, {cfg.party} Code/Name, Item Description, Qty, Unit Price…) → upload. Rows with the same <i>Doc Ref</i> become one invoice.</p>
+                <p className="muted small">Download the sheet → fill one row per item (Date, {cfg.party} Code/Name, Item Description, Qty, Unit Price…) → upload. Leave Doc No. blank — numbers are assigned automatically from your sequence. Rows with the same <i>Doc Ref</i> become one invoice.</p>
                 <button className="btn btn-sm" onClick={() => download(`/bulk/template?type=${type}`, `bulk-${type}-template.xlsx`)}>Download bulk sheet template</button>
               </div>
               <div>

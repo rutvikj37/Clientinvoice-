@@ -25,6 +25,10 @@ router.get('/', async (req, res) => {
   res.json(rows.map((r) => ({ ...r, is_expired: ['draft', 'sent'].includes(r.status) && r.due_date && r.due_date < t })));
 });
 router.get('/:id', async (req, res) => res.json(await mustGet(req)));
+router.get('/:id/history', async (req, res) => {
+  const q = await mustGet(req);
+  res.json({ id: q.id, doc_no: q.doc_no, kind: 'quotation', activity: q.activity || [] });
+});
 router.post('/', async (req, res) => {
   const q = await db.transaction(async () => createDoc('quotation', req.companyId, req.user, { ...req.body, status: undefined }));
   res.json(await mustGet(req, q.id));

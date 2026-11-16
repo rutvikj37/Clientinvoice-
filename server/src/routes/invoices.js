@@ -66,6 +66,10 @@ router.get('/export', async (req, res) => {
 });
 
 router.get('/:id', async (req, res) => res.json(await mustGet(req)));
+router.get('/:id/history', async (req, res) => {
+  const inv = await mustGet(req);
+  res.json({ id: inv.id, doc_no: inv.doc_no, kind: 'invoice', activity: inv.activity || [] });
+});
 
 router.post('/', async (req, res) => {
   const inv = await db.transaction(async () => {
@@ -156,6 +160,66 @@ async function addPayment(req, inv, { amount, paid_on, mode, reference }) {
     await logActivity(req.companyId, 'invoice', inv.id, 'payment', `${amt}${mode ? ' via ' + mode : ''}${reference ? ' (' + reference + ')' : ''}`, req.user.id);
   });
 }
+
+const EWAY_FIELDS = [
+  'eway_bill_no', 'eway_bill_date', 'eway_valid_upto', 'vehicle_no',
+  'transporter_name', 'transporter_gstin', 'transporter_id',
+  'approx_distance_km', 'dispatch_from', 'ship_to',
+];
+
+function cleanEway(body = {}, { clear = false } = {}) {
+  if (clear) {
+    return Object.fromEntries(EWAY_FIELDS.map((f) => [f, null]));
+  }
+  const out = {};
+  for (const f of EWAY_FIELDS) {
+    if (body[f] === undefined) continue;
+    if (body[f] === '' || body[f] === null) {
+      out[f] = null;
+      continue;
+    }
+    if (f === 'approx_distance_km') {
+      const n = Number(body[f]);
+      out[f] = Number.isFinite(n) && n >= 0 ? n : null;
+    } else if (f === 'transporter_gstin') {
+      out[f] = String(body[f]).trim().toUpperCase() || null;
+    } else if (f === 'vehicle_no' || f === 'eway_bill_no') {
+      out[f] = String(body[f]).trim().toUpperCase() || null;
+    } else if (f === 'eway_bill_date' || f === 'eway_valid_upto') {
+      out[f] = String(body[f]).slice(0, 10) || null;
+    } else {
+      out[f] = String(body[f]).trim() || null;
+    }
+  }
+  return out;
+}
+
+/** Record / update / clear e-way bill details (generated on GST portal, stored here for print). */
+router.put('/:id/eway-bill', async (req, res) => {
+  const inv = await mustGet(req);
+  if (inv.status === 'cancelled') throw new HttpError(400, `${inv.doc_no}: cannot update e-way bill on a cancelled invoice`);
+  const clear = !!req.body?.clear;
+  const data = clear ? cleanEway({}, { clear: true }) : cleanEway({
+    eway_bill_no: req.body?.eway_bill_no ?? '',
+    eway_bill_date: req.body?.eway_bill_date ?? '',
+    eway_valid_upto: req.body?.eway_valid_upto ?? '',
+    vehicle_no: req.body?.vehicle_no ?? '',
+    transporter_name: req.body?.transporter_name ?? '',
+    transporter_gstin: req.body?.transporter_gstin ?? '',
+    transporter_id: req.body?.transporter_id ?? '',
+    approx_distance_km: req.body?.approx_distance_km ?? '',
+    dispatch_from: req.body?.dispatch_from ?? '',
+    ship_to: req.body?.ship_to ?? '',
+  });
+  await db.prepare(`UPDATE invoices SET ${EWAY_FIELDS.map((f) => `${f} = ?`).join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND company_id = ?`)
+    .run(...EWAY_FIELDS.map((f) => data[f]), inv.id, req.companyId);
+  const detail = clear
+    ? null
+    : [data.eway_bill_no && `No. ${data.eway_bill_no}`, data.vehicle_no && `Vehicle ${data.vehicle_no}`, data.transporter_name]
+      .filter(Boolean).join(' · ') || 'Details saved';
+  await logActivity(req.companyId, 'invoice', inv.id, clear ? 'eway_cleared' : 'eway_updated', detail, req.user.id);
+  res.json(await mustGet(req));
+});
 
 router.post('/:id/issue', async (req, res) => { await issue(req, await mustGet(req)); res.json(await mustGet(req)); });
 router.post('/:id/cancel', async (req, res) => { await cancel(req, await mustGet(req), req.body?.reason); res.json(await mustGet(req)); });

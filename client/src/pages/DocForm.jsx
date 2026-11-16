@@ -87,7 +87,10 @@ export default function DocForm({ kind }) {
     if (!items.length) return toast('Add at least one item', 'error');
     setSaving(true);
     try {
-      const body = { ...f, items, status: mode === 'draft' ? 'draft' : undefined };
+      // Document numbers are always assigned by the sequence — never sent manually on create.
+      const { doc_no: _ignored, ...rest } = f;
+      const body = { ...rest, items, status: mode === 'draft' ? 'draft' : undefined };
+      if (id) body.doc_no = f.doc_no; // keep existing number on edit (server also ignores changes)
       const d = id ? await api.put(`${cfg.api}/${id}`, body) : await api.post(cfg.api, body);
       if (kind === 'po' && mode === 'submit') await api.post(`/purchase-orders/${d.id}/submit`);
       toast(`${cfg.label} ${d.doc_no} saved`);
@@ -111,7 +114,9 @@ export default function DocForm({ kind }) {
         <div className="card">
           <h3 className="card-title">Document details</h3>
           <div className="form-grid">
-            <Field label={cfg.noLabel} hint={!id ? `Leave blank for ${nextNo || 'automatic numbering'}` : null}><input value={f.doc_no} onChange={set('doc_no')} placeholder={nextNo} /></Field>
+            <Field label={cfg.noLabel} hint={!id ? 'Assigned automatically from your sequence' : 'Number is fixed after creation'}>
+              <input value={id ? f.doc_no : (nextNo || '')} readOnly disabled placeholder="Auto" />
+            </Field>
             <Field label={cfg.dateLabel}><input type="date" value={f.doc_date} onChange={set('doc_date')} /></Field>
             {cfg.dueLabel && <Field label={cfg.dueLabel} hint={!id && !f.due_date ? `Default: +${kind === 'quotation' ? company.quote_validity_days : company.default_due_days} days` : null}><input type="date" value={f.due_date || ''} onChange={set('due_date')} /></Field>}
             <Field label="Delivery Date"><input type="date" value={f.delivery_date || ''} onChange={set('delivery_date')} /></Field>

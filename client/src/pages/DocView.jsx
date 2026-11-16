@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, money, fmtDate, download, getToken } from '../api.js';
 import { Badge, PageHead, useToast, Modal, Field, useLoad } from '../components/ui.jsx';
 import { SendDocModal, PaymentModal } from '../components/SendDialogs.jsx';
+import { DocHistoryModal, HistoryList } from '../components/DocHistory.jsx';
+import { EwayBillModal, EwaySummary, hasEway } from '../components/EwayBillModal.jsx';
 import { DOCS, canSend } from '../docs.js';
 import { editable } from './DocList.jsx';
 import { useAuth } from '../auth.jsx';
@@ -44,6 +46,8 @@ export default function DocView({ kind }) {
   const [pay, setPay] = useState(false);
   const [receive, setReceive] = useState(false);
   const [reason, setReason] = useState(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [ewayOpen, setEwayOpen] = useState(false);
   const [ver, setVer] = useState(0);
 
   useEffect(() => { if (params.get('receive') && d) { setReceive(true); setParams({}); } }, [d]); // eslint-disable-line
@@ -74,6 +78,9 @@ export default function DocView({ kind }) {
     }
     if (['unpaid', 'cancelled'].includes(d.status) && !(d.amount_paid > 0)) {
       buttons.push(<button key="reset" className="btn" onClick={() => confirmReset() && act('reset', {}, 'Reset to draft')}>Reset to draft</button>);
+    }
+    if (d.status !== 'cancelled') {
+      buttons.push(<button key="eway" className="btn" onClick={() => setEwayOpen(true)}>{hasEway(d) ? 'Edit e-way bill' : 'Add e-way bill'}</button>);
     }
   }
   if (kind === 'quotation') {
@@ -119,6 +126,9 @@ export default function DocView({ kind }) {
           <button className="btn btn-wa" disabled={!canSend(kind, d.status)} title={!canSend(kind, d.status) ? (kind === 'po' ? 'Approve the PO first' : 'Issue first') : ''} onClick={() => setSend('whatsapp')}>WhatsApp</button>
           {kind !== 'invoice' && <button className="btn" disabled={!canSend(kind, d.status)} onClick={() => setSend('email')}>Email</button>}
           <button className="btn" onClick={() => download(`${cfg.api}/${d.id}/pdf?download=1`, fileName)}>Download PDF</button>
+          {(kind === 'invoice' || kind === 'quotation') && (
+            <button className="btn" onClick={() => setHistoryOpen(true)}>History</button>
+          )}
           <button className="btn" onClick={async () => { const c = await api.post(`${cfg.api}/${d.id}/duplicate`); nav(`${cfg.path}/${c.id}/edit`); }}>Duplicate</button>
         </div>
         {(cancelAllowed || d.status === 'draft') && (
@@ -132,6 +142,19 @@ export default function DocView({ kind }) {
       <div className="view-grid">
         <PdfPreview url={`${cfg.api}/${d.id}/pdf`} version={`${ver}-${d.updated_at}`} />
         <div className="side">
+          {kind === 'invoice' && (
+            <div className="card">
+              <div className="card-head">
+                <h3>E-way bill</h3>
+                {d.status !== 'cancelled' && (
+                  <button type="button" className="btn btn-sm" onClick={() => setEwayOpen(true)}>
+                    {hasEway(d) ? 'Edit' : 'Add'}
+                  </button>
+                )}
+              </div>
+              <EwaySummary invoice={d} />
+            </div>
+          )}
           {kind === 'invoice' && (
             <div className="card">
               <div className="card-head"><h3>Payments</h3></div>
@@ -170,14 +193,26 @@ export default function DocView({ kind }) {
               <dt>Transport</dt><dd>{d.transport || '–'}</dd>
             </dl>
           </div>
-          <div className="card">
-            <div className="card-head"><h3>Activity</h3></div>
-            <ul className="activity">
-              {activity.length === 0 ? <li className="muted small">No activity yet.</li> : activity.map((a) => (
-                <li key={a.id}><b>{a.action.replace(/_/g, ' ')}</b>{a.detail ? ` · ${a.detail}` : ''}<div className="muted small">{a.user_name || 'System'} · {new Date(a.created_at + 'Z').toLocaleString('en-IN')}</div></li>
-              ))}
-            </ul>
-          </div>
+          {(kind === 'invoice' || kind === 'quotation') && (
+            <div className="card">
+              <div className="card-head">
+                <h3>History</h3>
+                <button type="button" className="btn btn-sm" onClick={() => setHistoryOpen(true)}>View all</button>
+              </div>
+              <HistoryList activity={activity.slice(0, 8)} />
+              {activity.length > 8 && (
+                <button type="button" className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setHistoryOpen(true)}>
+                  +{activity.length - 8} more
+                </button>
+              )}
+            </div>
+          )}
+          {kind === 'po' && (
+            <div className="card">
+              <div className="card-head"><h3>Activity</h3></div>
+              <HistoryList activity={activity} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -185,6 +220,12 @@ export default function DocView({ kind }) {
       {pay && <PaymentModal invoice={d} onClose={() => setPay(false)} onSaved={refresh} />}
       {receive && <ReceiveModal po={d} onClose={() => setReceive(false)} onSaved={() => { setReceive(false); refresh(); }} />}
       {reason && <ReasonModal title={reason.title} onClose={() => setReason(null)} onSubmit={async (text) => { await act(reason.action, { reason: text }, reason.action === 'cancel' ? 'Cancelled' : 'Updated'); setReason(null); }} />}
+      {historyOpen && (
+        <DocHistoryModal kind={kind} id={d.id} docNo={d.doc_no} activity={activity} onClose={() => setHistoryOpen(false)} />
+      )}
+      {ewayOpen && (
+        <EwayBillModal invoice={d} onClose={() => setEwayOpen(false)} onSaved={() => { setEwayOpen(false); refresh(); }} />
+      )}
     </>
   );
 }

@@ -7,17 +7,17 @@ const { computeTotals, stateCodeFor, today, addDays, HttpError, STATES } = requi
 const KINDS = {
   invoice: {
     table: 'invoices', items: 'invoice_items', party: 'customers', entity: 'invoice', label: 'Invoice', partyLabel: 'Customer',
-    prefix: 'invoice_prefix', priceField: 'sale_price', termsField: 'invoice_terms', dueDaysField: 'default_due_days',
+    prefix: 'invoice_prefix', seqField: 'invoice_seq_next', priceField: 'sale_price', termsField: 'invoice_terms', dueDaysField: 'default_due_days',
     defaultStatus: 'unpaid', editable: (d) => ['draft', 'unpaid'].includes(d.status) && !(d.amount_paid > 0),
   },
   quotation: {
     table: 'quotations', items: 'quotation_items', party: 'customers', entity: 'quotation', label: 'Quotation', partyLabel: 'Customer',
-    prefix: 'quote_prefix', priceField: 'sale_price', termsField: 'quote_terms', dueDaysField: 'quote_validity_days',
+    prefix: 'quote_prefix', seqField: 'quote_seq_next', priceField: 'sale_price', termsField: 'quote_terms', dueDaysField: 'quote_validity_days',
     defaultStatus: 'draft', editable: (d) => ['draft', 'sent', 'rejected'].includes(d.status),
   },
   po: {
     table: 'purchase_orders', items: 'po_items', party: 'vendors', entity: 'po', label: 'Purchase Order', partyLabel: 'Vendor',
-    prefix: 'po_prefix', priceField: 'purchase_price', termsField: 'po_terms', dueDaysField: null,
+    prefix: 'po_prefix', seqField: 'po_seq_next', priceField: 'purchase_price', termsField: 'po_terms', dueDaysField: null,
     defaultStatus: 'draft', editable: (d) => ['draft', 'rejected'].includes(d.status),
   },
 };
@@ -37,18 +37,57 @@ function financialYear(dateStr = today()) {
   return `${start}-${String((start + 1) % 100).padStart(2, '0')}`;
 }
 
-/** Next number for prefix like "MCH/{FY}/" -> MCH/2026-27/004. Sequence restarts each FY because the prefix changes. */
+/**
+ * Next number for prefix like "MCH/{FY}/" -> MCH/2026-27/004.
+ * Sequence restarts each FY because the prefix changes.
+ * If company.*_seq_next is set (after Reset sequence), starts from that value and skips taken numbers.
+ */
 async function nextDocNo(companyId, kind, dateStr) {
   const cfg = kindOf(kind);
   const company = await getCompany(companyId);
   const prefix = String(company[cfg.prefix] || '').replace(/\{FY\}/g, financialYear(dateStr || today()));
+  const padding = company.number_padding || 3;
   const rows = await db.prepare(`SELECT doc_no FROM ${cfg.table} WHERE company_id = ? AND SUBSTRING(doc_no, 1, ?) = ?`).all(companyId, prefix.length, prefix);
+  const used = new Set();
   let max = 0;
   for (const r of rows) {
     const n = Number(r.doc_no.slice(prefix.length));
-    if (Number.isInteger(n) && n > max) max = n;
+    if (Number.isInteger(n) && n > 0) {
+      used.add(n);
+      if (n > max) max = n;
+    }
   }
-  return `${prefix}${String(max + 1).padStart(company.number_padding || 3, '0')}`;
+  const seed = Number(company[cfg.seqField]);
+  let next;
+  if (Number.isInteger(seed) && seed > 0) {
+    next = seed;
+    while (used.has(next)) next += 1;
+  } else {
+    next = max + 1;
+  }
+  return `${prefix}${String(next).padStart(padding, '0')}`;
+}
+
+/** After assigning an auto number, advance the sequence so the next doc continues from here. */
+async function advanceDocSeq(companyId, kind, docNo, dateStr) {
+  const cfg = kindOf(kind);
+  const company = await getCompany(companyId);
+  const prefix = String(company[cfg.prefix] || '').replace(/\{FY\}/g, financialYear(dateStr || today()));
+  if (!docNo.startsWith(prefix)) return;
+  const n = Number(docNo.slice(prefix.length));
+  if (!Number.isInteger(n) || n < 1) return;
+  const current = Number(company[cfg.seqField]);
+  const next = n + 1;
+  if (!Number.isInteger(current) || current < next) {
+    await db.prepare(`UPDATE companies SET ${cfg.seqField} = ? WHERE id = ?`).run(next, companyId);
+  }
+}
+
+/** Admin: reset sequence so the next document tries 001 (skips numbers that already exist). */
+async function resetDocSequence(companyId, kind) {
+  const cfg = kindOf(kind);
+  await db.prepare(`UPDATE companies SET ${cfg.seqField} = 1 WHERE id = ?`).run(companyId);
+  return nextDocNo(companyId, kind);
 }
 
 function partyStateCode(p) { return p.state_code || stateCodeFor(p.state, p.gstin); }
@@ -150,11 +189,16 @@ async function createDoc(kind, companyId, user, data, { source = 'manual', batch
   const interstate = isInterstate(company, party);
   const t = computeTotals(items, { interstate, shipping: data.shipping, roundOff: kind !== 'po' });
   const h = buildHeader(kind, company, party, data, null, user);
-  let docNo = String(data.doc_no || '').trim();
+  // Numbers always come from the sequence. Excel bulk may supply a number only when it is not a sequence-style MCH/… code.
+  let docNo = source === 'bulk' ? String(data.doc_no || '').trim() : '';
+  let autoNumber = !docNo;
   if (docNo) {
     if (await db.prepare(`SELECT 1 FROM ${cfg.table} WHERE company_id = ? AND doc_no = ?`).get(companyId, docNo))
       throw new HttpError(409, `${cfg.label} number ${docNo} already exists`);
-  } else docNo = await nextDocNo(companyId, kind, h.doc_date);
+  } else {
+    docNo = await nextDocNo(companyId, kind, h.doc_date);
+    autoNumber = true;
+  }
   const st = status || (data.status === 'draft' ? 'draft' : cfg.defaultStatus);
 
   const cols = ['company_id', 'doc_no', 'party_id', 'status', 'is_interstate', ...HEADER_FIELDS,
@@ -170,8 +214,35 @@ async function createDoc(kind, companyId, user, data, { source = 'manual', batch
   if (kind === 'invoice' && data.quotation_id) { cols.push('quotation_id'); vals.push(data.quotation_id); }
   const info = await db.prepare(`INSERT INTO ${cfg.table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
   await insertItems(cfg, info.lastInsertRowid, t.lines);
+  if (autoNumber) await advanceDocSeq(companyId, kind, docNo, h.doc_date);
   await logActivity(companyId, cfg.entity, info.lastInsertRowid, 'created', source === 'bulk' ? 'Created from Excel upload' : null, user?.id);
   return db.prepare(`SELECT * FROM ${cfg.table} WHERE id = ?`).get(info.lastInsertRowid);
+}
+
+const FIELD_LABELS = {
+  doc_date: 'Date', due_date: 'Due / validity', delivery_date: 'Delivery date', place_of_supply: 'Place of supply',
+  contact_person: 'Contact person', contact_phone: 'Phone', contact_email: 'Email',
+  payment_terms: 'Payment terms', transport: 'Transport', reference: 'Reference', remarks: 'Remarks', terms: 'Terms',
+};
+
+function summarizeDocChanges(cfg, doc, oldItems, party, h, t) {
+  const parts = [];
+  if (Number(doc.party_id) !== Number(party.id)) parts.push(`${cfg.partyLabel} → ${party.name}`);
+  for (const f of HEADER_FIELDS) {
+    const prev = doc[f] == null ? '' : String(doc[f]);
+    const next = h[f] == null ? '' : String(h[f]);
+    if (prev !== next) parts.push(`${FIELD_LABELS[f] || f} changed`);
+  }
+  const oldShip = Number(doc.shipping || 0);
+  const newShip = Number(t.shipping || 0);
+  if (oldShip !== newShip) parts.push(`Freight ${oldShip} → ${newShip}`);
+  if (Number(doc.total) !== Number(t.total)) parts.push(`Total ${Number(doc.total).toFixed(2)} → ${Number(t.total).toFixed(2)}`);
+  if (oldItems.length !== t.lines.length) parts.push(`Line items ${oldItems.length} → ${t.lines.length}`);
+  else {
+    const sig = (rows) => rows.map((r) => [r.item_code || '', r.description || '', Number(r.qty), Number(r.rate), Number(r.discount_pct || 0), Number(r.tax_rate || 0)].join('|')).join(';');
+    if (sig(oldItems) !== sig(t.lines)) parts.push('Line items edited');
+  }
+  return parts.slice(0, 6).join(' · ') || 'Details updated';
 }
 
 async function updateDoc(kind, companyId, user, id, data, { beforeSave } = {}) {
@@ -181,24 +252,23 @@ async function updateDoc(kind, companyId, user, id, data, { beforeSave } = {}) {
   if (!cfg.editable(doc)) throw new HttpError(400, `This ${cfg.label.toLowerCase()} can no longer be edited (status: ${doc.status.replace(/_/g, ' ')})`);
   const company = await getCompany(companyId);
   const party = await resolveParty(companyId, cfg, data.party_id || doc.party_id);
+  const oldItems = await db.prepare(`SELECT * FROM ${cfg.items} WHERE doc_id = ? ORDER BY sort, id`).all(id);
   const items = await normaliseItems(companyId, kind, data.items);
   const interstate = isInterstate(company, party);
   const t = computeTotals(items, { interstate, shipping: data.shipping ?? doc.shipping, roundOff: kind !== 'po' });
   const h = buildHeader(kind, company, party, data, doc, user);
-  const docNo = String(data.doc_no || doc.doc_no).trim();
-  if (docNo !== doc.doc_no && await db.prepare(`SELECT 1 FROM ${cfg.table} WHERE company_id = ? AND doc_no = ?`).get(companyId, docNo))
-    throw new HttpError(409, `${cfg.label} number ${docNo} already exists`);
   if (beforeSave) await beforeSave(doc);
-  const sets = ['doc_no = ?', 'party_id = ?', 'is_interstate = ?', ...HEADER_FIELDS.map((f) => `${f} = ?`),
+  const detail = summarizeDocChanges(cfg, doc, oldItems, party, h, t);
+  const sets = ['party_id = ?', 'is_interstate = ?', ...HEADER_FIELDS.map((f) => `${f} = ?`),
     'subtotal = ?', 'discount_total = ?', 'taxable_total = ?', 'cgst = ?', 'sgst = ?', 'igst = ?', 'tax_total = ?', 'shipping = ?', 'round_off = ?', 'total = ?',
     'updated_at = CURRENT_TIMESTAMP'];
-  const vals = [docNo, party.id, interstate ? 1 : 0, ...HEADER_FIELDS.map((f) => h[f] ?? null),
+  const vals = [party.id, interstate ? 1 : 0, ...HEADER_FIELDS.map((f) => h[f] ?? null),
     t.subtotal, t.discount_total, t.taxable_total, t.cgst, t.sgst, t.igst, t.tax_total, t.shipping, t.round_off, t.total];
   if (kind === 'po' && data.delivery_address !== undefined) { sets.push('delivery_address = ?'); vals.push(data.delivery_address || null); }
   await db.prepare(`UPDATE ${cfg.table} SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
   await db.prepare(`DELETE FROM ${cfg.items} WHERE doc_id = ?`).run(id);
   await insertItems(cfg, id, t.lines);
-  await logActivity(companyId, cfg.entity, id, 'updated', null, user?.id);
+  await logActivity(companyId, cfg.entity, id, 'updated', detail, user?.id);
   return db.prepare(`SELECT * FROM ${cfg.table} WHERE id = ?`).get(id);
 }
 
@@ -232,4 +302,7 @@ async function listDocs(kind, companyId, { status, party_id, from, to, q, batch_
     FROM ${cfg.table} d JOIN ${cfg.party} p ON p.id = d.party_id WHERE ${where} ORDER BY d.doc_date DESC, d.id DESC`).all(...params);
 }
 
-module.exports = { KINDS, kindOf, getCompany, financialYear, nextDocNo, isInterstate, normaliseItems, createDoc, updateDoc, getDoc, listDocs, HEADER_FIELDS };
+module.exports = {
+  KINDS, kindOf, getCompany, financialYear, nextDocNo, advanceDocSeq, resetDocSequence,
+  isInterstate, normaliseItems, createDoc, updateDoc, getDoc, listDocs, HEADER_FIELDS,
+};

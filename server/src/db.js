@@ -162,6 +162,9 @@ CREATE TABLE IF NOT EXISTS companies (
   quote_prefix VARCHAR(64) DEFAULT 'QT/{FY}/',
   po_prefix VARCHAR(64) DEFAULT 'PO/{FY}/',
   number_padding INT DEFAULT 3,
+  invoice_seq_next INT NULL,
+  quote_seq_next INT NULL,
+  po_seq_next INT NULL,
   default_due_days INT DEFAULT 15,
   quote_validity_days INT DEFAULT 15,
   default_payment_terms TEXT NULL,
@@ -277,6 +280,16 @@ CREATE TABLE IF NOT EXISTS invoices (
   amount_paid DOUBLE DEFAULT 0,
   stock_applied TINYINT DEFAULT 0,
   quotation_id INT NULL,
+  eway_bill_no VARCHAR(32) NULL,
+  eway_bill_date VARCHAR(32) NULL,
+  eway_valid_upto VARCHAR(32) NULL,
+  vehicle_no VARCHAR(32) NULL,
+  transporter_name VARCHAR(255) NULL,
+  transporter_gstin VARCHAR(32) NULL,
+  transporter_id VARCHAR(64) NULL,
+  approx_distance_km DOUBLE NULL,
+  dispatch_from TEXT NULL,
+  ship_to TEXT NULL,
   UNIQUE KEY ux_invoices_doc (company_id, doc_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -361,12 +374,39 @@ CREATE TABLE IF NOT EXISTS bulk_batches (
   user_id INT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  company_id INT NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'todo',
+  priority VARCHAR(16) NOT NULL DEFAULT 'medium',
+  due_date VARCHAR(32) NULL,
+  assigned_to INT NULL,
+  created_by INT NULL,
+  completed_at VARCHAR(32) NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY ix_tasks_company (company_id),
+  KEY ix_tasks_status (company_id, status),
+  KEY ix_tasks_assignee (company_id, assigned_to),
+  CONSTRAINT fk_tasks_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `;
 
 async function logActivity(companyId, entity, entityId, action, detail, userId) {
   await prepare(
     'INSERT INTO activity (company_id, entity, entity_id, action, detail, user_id) VALUES (?,?,?,?,?,?)'
   ).run(companyId, entity, entityId, action, detail || null, userId || null);
+}
+
+async function ensureColumn(table, column, definitionSql) {
+  const row = await prepare(
+    `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`
+  ).get(table, column);
+  if (!Number(row?.c)) await exec(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${definitionSql}`);
 }
 
 async function initDb() {
@@ -384,6 +424,19 @@ async function initDb() {
     conn.release();
   }
   await exec(SCHEMA);
+  await ensureColumn('companies', 'invoice_seq_next', 'INT NULL');
+  await ensureColumn('companies', 'quote_seq_next', 'INT NULL');
+  await ensureColumn('companies', 'po_seq_next', 'INT NULL');
+  await ensureColumn('invoices', 'eway_bill_no', 'VARCHAR(32) NULL');
+  await ensureColumn('invoices', 'eway_bill_date', 'VARCHAR(32) NULL');
+  await ensureColumn('invoices', 'eway_valid_upto', 'VARCHAR(32) NULL');
+  await ensureColumn('invoices', 'vehicle_no', 'VARCHAR(32) NULL');
+  await ensureColumn('invoices', 'transporter_name', 'VARCHAR(255) NULL');
+  await ensureColumn('invoices', 'transporter_gstin', 'VARCHAR(32) NULL');
+  await ensureColumn('invoices', 'transporter_id', 'VARCHAR(64) NULL');
+  await ensureColumn('invoices', 'approx_distance_km', 'DOUBLE NULL');
+  await ensureColumn('invoices', 'dispatch_from', 'TEXT NULL');
+  await ensureColumn('invoices', 'ship_to', 'TEXT NULL');
   return pool;
 }
 

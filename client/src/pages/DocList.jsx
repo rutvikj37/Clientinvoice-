@@ -3,6 +3,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, money, fmtDate, download, openPdf } from '../api.js';
 import { useLoad, Badge, ActionMenu, PageHead, Empty, useToast } from '../components/ui.jsx';
 import { SendDocModal, BulkResultModal, PaymentModal } from '../components/SendDialogs.jsx';
+import { DocHistoryModal } from '../components/DocHistory.jsx';
+import { EwayBillModal } from '../components/EwayBillModal.jsx';
 import { DOCS, canSend } from '../docs.js';
 
 const BULK = {
@@ -22,6 +24,8 @@ export default function DocList({ kind }) {
   const [selected, setSelected] = useState(new Set());
   const [send, setSend] = useState(null);
   const [pay, setPay] = useState(null);
+  const [history, setHistory] = useState(null);
+  const [eway, setEway] = useState(null);
   const [bulkResult, setBulkResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
@@ -54,6 +58,7 @@ export default function DocList({ kind }) {
       { label: 'Edit', disabled: !editable(kind, r), onClick: () => nav(`${cfg.path}/${r.id}/edit`) },
       { label: 'View PDF', onClick: () => pdf(r) },
       { label: 'Download PDF', onClick: () => download(`${cfg.api}/${r.id}/pdf?download=1`, `${cfg.label}-${r.doc_no.replace(/\//g, '_')}.pdf`) },
+      (kind === 'invoice' || kind === 'quotation') && { label: 'History', onClick: () => setHistory({ id: r.id, doc_no: r.doc_no }) },
       '-',
       { label: 'Send on WhatsApp', disabled: !canSend(kind, r.status), onClick: () => setSend({ id: r.id, channel: 'whatsapp' }) },
       kind !== 'invoice' && { label: 'Send by email', disabled: !canSend(kind, r.status), onClick: () => setSend({ id: r.id, channel: 'email' }) },
@@ -66,6 +71,15 @@ export default function DocList({ kind }) {
       ...common.slice(2),
       { label: 'Record payment', disabled: !['unpaid', 'partially_paid'].includes(r.status), onClick: () => setPay(r) },
       { label: 'Mark as paid', disabled: !['unpaid', 'partially_paid'].includes(r.status), onClick: () => act(() => api.post(`/invoices/${r.id}/mark-paid`), 'Marked as paid') },
+      r.status !== 'cancelled' && {
+        label: 'E-way bill',
+        onClick: async () => {
+          try {
+            const inv = await api.get(`/invoices/${r.id}`);
+            setEway(inv);
+          } catch (e) { toast(e.message, 'error'); }
+        },
+      },
       ['unpaid', 'cancelled'].includes(r.status) && !(r.amount_paid > 0) && {
         label: 'Reset to draft',
         onClick: () => confirm(`Reset invoice ${r.doc_no} to draft?`) && act(() => api.post(`/invoices/${r.id}/reset`), 'Reset to draft'),
@@ -174,6 +188,12 @@ export default function DocList({ kind }) {
       </div>
       {send && <SendDocModal kind={kind} id={send.id} channel={send.channel} onClose={() => setSend(null)} onSent={reload} />}
       {pay && <PaymentModal invoice={pay} onClose={() => setPay(null)} onSaved={reload} />}
+      {history && (
+        <DocHistoryModal kind={kind} id={history.id} docNo={history.doc_no} onClose={() => setHistory(null)} />
+      )}
+      {eway && (
+        <EwayBillModal invoice={eway} onClose={() => setEway(null)} onSaved={() => { setEway(null); reload(); }} />
+      )}
       {bulkResult && <BulkResultModal {...bulkResult} onClose={() => setBulkResult(null)} />}
     </>
   );

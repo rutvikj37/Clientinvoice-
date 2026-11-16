@@ -45,6 +45,7 @@ const LABELS = {
   pending_approval: 'Pending approval', approved: 'Approved', rejected: 'Rejected', sent: 'Sent',
   accepted: 'Accepted', converted: 'Converted',
   partially_received: 'Partly received', received: 'Received', closed: 'Closed',
+  todo: 'To do', in_progress: 'In progress', done: 'Done',
 };
 export function Badge({ status, overdue }) {
   const s = overdue ? 'overdue' : status;

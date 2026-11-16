@@ -10,6 +10,7 @@ import BulkUpload from './pages/BulkUpload.jsx';
 import Parties from './pages/Parties.jsx';
 import Inventory from './pages/Inventory.jsx';
 import Settings from './pages/Settings.jsx';
+import Tasks from './pages/Tasks.jsx';
 import {
   IconDashboard,
   IconQuotation,
@@ -20,10 +21,12 @@ import {
   IconVendors,
   IconInventory,
   IconSettings,
+  IconTasks,
 } from './components/Icons.jsx';
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: IconDashboard, end: true },
+  { to: '/tasks', label: 'Tasks', icon: IconTasks },
   { section: 'Sales' },
   { to: '/quotations', label: 'Quotations', icon: IconQuotation },
   { to: '/invoices', label: 'Invoices', icon: IconInvoice },
@@ -119,6 +122,7 @@ export default function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/tasks" element={<Tasks />} />
         {['invoice', 'quotation', 'po'].flatMap((k) => {
           const base = { invoice: '/invoices', quotation: '/quotations', po: '/purchase-orders' }[k];
           return [

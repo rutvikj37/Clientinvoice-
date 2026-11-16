@@ -91,3 +91,12 @@ export const IconSettings = () => (
     <path d="M12 3v2.2M12 18.8V21M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M3 12h2.2M18.8 12H21M4.9 19.1l1.6-1.6M17.5 6.5l1.6-1.6" />
   </Svg>
 );
+
+export const IconTasks = () => (
+  <Svg>
+    <path d="M9 6h11M9 12h11M9 18h11" />
+    <path d="M4.5 6.5l1.2 1.2L7.8 5" />
+    <path d="M4.5 12.5l1.2 1.2L7.8 11" />
+    <rect x="3.5" y="16.5" width="4" height="4" rx="0.8" />
+  </Svg>
+);
