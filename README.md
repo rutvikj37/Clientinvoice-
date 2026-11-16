@@ -54,8 +54,9 @@ Private repo? Add `GITHUB_TOKEN=<read-only token>` to the command.
 | Task | Command |
 |---|---|
 | Update to latest code | `sudo bash /opt/clientinvoice/deploy/update.sh` |
-| Logs | `journalctl -u clientinvoice -f` |
-| Restart | `sudo systemctl restart clientinvoice` |
+| Logs | `pm2 logs clientinvoice` (systemd install: `journalctl -u clientinvoice -f`) |
+| Restart | `pm2 restart clientinvoice` (systemd install: `sudo systemctl restart clientinvoice`) |
+| Run under pm2 instead of systemd | `sudo systemctl disable --now clientinvoice && sudo pm2 start /opt/clientinvoice/deploy/ecosystem.config.js && sudo pm2 save` |
 | Manual backup | `sudo /etc/cron.daily/clientinvoice-backup` |
 
 Data (SQLite DB + uploaded logos) lives in `/var/lib/clientinvoice`.

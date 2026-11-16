@@ -13,5 +13,9 @@ chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 echo "==> Installing & building"
 sudo -u "$APP_USER" -H env PATH="$PATH" bash -c "cd '$APP_DIR/server' && npm ci --omit=dev --no-audit --no-fund"
 sudo -u "$APP_USER" -H env PATH="$PATH" bash -c "cd '$APP_DIR/client' && npm ci --no-audit --no-fund && npm run build"
-systemctl restart clientinvoice
-sleep 2 && curl -fsS http://127.0.0.1:${PORT:-4000}/api/health >/dev/null && echo "✔ Updated and running" || { echo "!! Not healthy: journalctl -u clientinvoice -n 50"; exit 1; }
+if command -v pm2 >/dev/null && pm2 describe clientinvoice >/dev/null 2>&1; then
+  pm2 restart clientinvoice --update-env
+else
+  systemctl restart clientinvoice
+fi
+sleep 2 && curl -fsS http://127.0.0.1:${PORT:-4000}/api/health >/dev/null && echo "✔ Updated and running" || { echo "!! Not healthy: pm2 logs clientinvoice --lines 50  (or journalctl -u clientinvoice -n 50)"; exit 1; }
