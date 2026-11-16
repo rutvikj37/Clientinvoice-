@@ -32,12 +32,23 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y curl git nginx build-essential python3 sqlite3 ufw ca-certificates gnupg
 
-NODE_MAJOR=$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/' || echo 0)
-if [ "${NODE_MAJOR:-0}" -lt 20 ]; then
-  log "Installing Node.js 22 LTS"
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-  apt-get install -y nodejs
+# The app needs Node 24+. If the system Node is older, install a private copy under /opt/node24
+# instead of upgrading the system one, so other apps on the same server are not affected.
+NODE_DIR=/opt/node24
+SYS_MAJOR=$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/' || echo 0)
+if [ "${SYS_MAJOR:-0}" -ge 24 ]; then
+  NODE_BIN_DIR=$(dirname "$(command -v node)")
+else
+  if [ ! -x "$NODE_DIR/bin/node" ]; then
+    log "Installing private Node.js 24 in $NODE_DIR (system Node left untouched)"
+    case "$(uname -m)" in x86_64) ARCH=x64 ;; aarch64|arm64) ARCH=arm64 ;; *) echo "Unsupported CPU $(uname -m)"; exit 1 ;; esac
+    NODE_VER=$(curl -fsS https://nodejs.org/dist/index.json | python3 -c 'import json,sys; print([v["version"] for v in json.load(sys.stdin) if v["version"].startswith("v24.")][0])')
+    mkdir -p "$NODE_DIR"
+    curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-linux-$ARCH.tar.xz" | tar -xJ -C "$NODE_DIR" --strip-components=1
+  fi
+  NODE_BIN_DIR="$NODE_DIR/bin"
 fi
+export PATH="$NODE_BIN_DIR:$PATH"
 node -v
 
 log "Creating app user and folders"
@@ -73,9 +84,9 @@ chmod 600 "$ENV_FILE"
 
 log "Installing dependencies and building the web app"
 chown -R "$APP_USER:$APP_USER" "$APP_DIR" "$DATA_DIR"
-sudo -u "$APP_USER" -H bash -c "cd '$APP_DIR/server' && npm ci --omit=dev --no-audit --no-fund"
-sudo -u "$APP_USER" -H bash -c "cd '$APP_DIR/client' && npm ci --no-audit --no-fund && npm run build"
-if [ "${SEED_DEMO:-0}" = "1" ]; then sudo -u "$APP_USER" -H bash -c "cd '$APP_DIR/server' && node src/seed.js"; fi
+sudo -u "$APP_USER" -H env PATH="$PATH" bash -c "cd '$APP_DIR/server' && npm ci --omit=dev --no-audit --no-fund"
+sudo -u "$APP_USER" -H env PATH="$PATH" bash -c "cd '$APP_DIR/client' && npm ci --no-audit --no-fund && npm run build"
+if [ "${SEED_DEMO:-0}" = "1" ]; then sudo -u "$APP_USER" -H env PATH="$PATH" bash -c "cd '$APP_DIR/server' && node src/seed.js"; fi
 
 log "Creating systemd service"
 cat > /etc/systemd/system/$SERVICE.service <<UNIT
@@ -88,7 +99,7 @@ Type=simple
 User=$APP_USER
 WorkingDirectory=$APP_DIR/server
 EnvironmentFile=$ENV_FILE
-ExecStart=/usr/bin/node src/index.js
+ExecStart=$NODE_BIN_DIR/node src/index.js
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
@@ -128,10 +139,18 @@ ln -sf /etc/nginx/sites-available/$SERVICE /etc/nginx/sites-enabled/$SERVICE
 [ -z "${DOMAIN:-}" ] && rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
 
-log "Firewall: allowing SSH, HTTP, HTTPS"
-ufw allow OpenSSH >/dev/null
-ufw allow 'Nginx Full' >/dev/null
-ufw --force enable >/dev/null
+# Only turn the firewall on for a fresh server; on a shared server it could block other apps' ports.
+if [ "${SKIP_FIREWALL:-0}" != "1" ] && ! ufw status | grep -q "Status: active"; then
+  OTHER_SITES=$(ls /etc/nginx/sites-enabled | grep -vE "^($SERVICE|default)$" || true)
+  if [ -z "$OTHER_SITES" ]; then
+    log "Firewall: allowing SSH, HTTP, HTTPS"
+    ufw allow OpenSSH >/dev/null
+    ufw allow 'Nginx Full' >/dev/null
+    ufw --force enable >/dev/null
+  else
+    log "Other sites found on this server, leaving the firewall as it is"
+  fi
+fi
 
 if [ -n "${DOMAIN:-}" ]; then
   log "Getting free HTTPS certificate for $DOMAIN"

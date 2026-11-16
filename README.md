@@ -44,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/rutvikj37/Clientinvoice-/main/deplo
 sudo DOMAIN=invoice.yourcompany.com EMAIL=you@yourcompany.com bash setup.sh
 ```
 
-This installs Node.js 22, builds the app, runs it as a `systemd` service (auto-restart and start on boot) behind **Nginx**, gets a free **HTTPS** certificate, enables the firewall and sets up **daily backups** to `/var/backups/clientinvoice` (kept 14 days). A random `JWT_SECRET` is generated in `/opt/clientinvoice/server/.env`.
+This installs Node.js 24, builds the app, runs it as a `systemd` service (auto-restart and start on boot) behind **Nginx**, gets a free **HTTPS** certificate, enables the firewall and sets up **daily backups** to `/var/backups/clientinvoice` (kept 14 days). A random `JWT_SECRET` is generated in `/opt/clientinvoice/server/.env`.
 
 No domain yet? Run `sudo bash setup.sh` and the app is served on `http://<server-ip>`. Run it again later with `DOMAIN=` and `EMAIL=` to add HTTPS.
 Private repo? Add `GITHUB_TOKEN=<read-only token>` to the command.
