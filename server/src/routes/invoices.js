@@ -22,10 +22,27 @@ async function mustGet(req, id = req.params.id) {
 
 async function list(req) {
   const { status } = req.query;
-  const extra = status === 'overdue' ? " AND d.status IN ('unpaid','partially_paid') AND d.due_date < ?" : '';
-  const rows = await listDocs('invoice', req.companyId, { ...req.query, status: status === 'overdue' ? '' : status }, extra, status === 'overdue' ? [today()] : []);
+  // Unpaid tab = anything still due (unpaid + partly paid). Exact partly_paid / overdue keep their own filters.
+  let extra = '';
+  let extraParams = [];
+  let statusFilter = status || '';
+  if (status === 'overdue') {
+    extra = " AND d.status IN ('unpaid','partially_paid') AND d.due_date < ?";
+    extraParams = [today()];
+    statusFilter = '';
+  } else if (status === 'unpaid') {
+    extra = " AND d.status IN ('unpaid','partially_paid')";
+    statusFilter = '';
+  }
+  const rows = await listDocs('invoice', req.companyId, { ...req.query, status: statusFilter }, extra, extraParams);
   const t = today();
-  return rows.map((r) => ({ ...r, balance: round2(r.total - r.amount_paid), is_overdue: ['unpaid', 'partially_paid'].includes(r.status) && r.due_date && r.due_date < t }));
+  return rows.map((r) => ({
+    ...r,
+    total: Number(r.total) || 0,
+    amount_paid: Number(r.amount_paid) || 0,
+    balance: round2((Number(r.total) || 0) - (Number(r.amount_paid) || 0)),
+    is_overdue: ['unpaid', 'partially_paid'].includes(r.status) && r.due_date && r.due_date < t,
+  }));
 }
 
 router.get('/', async (req, res) => res.json(await list(req)));
@@ -102,8 +119,11 @@ async function cancel(req, inv, reason) {
 async function refreshPaymentStatus(invoiceId) {
   const inv = await db.prepare('SELECT * FROM invoices WHERE id = ?').get(invoiceId);
   const paid = round2((await db.prepare('SELECT COALESCE(SUM(amount),0) AS s FROM invoice_payments WHERE invoice_id = ?').get(invoiceId)).s);
+  const total = round2(inv.total);
   let status = inv.status;
-  if (!['draft', 'cancelled'].includes(status)) status = paid <= 0 ? 'unpaid' : paid + 0.009 >= inv.total ? 'paid' : 'partially_paid';
+  if (!['draft', 'cancelled'].includes(status)) {
+    status = paid <= 0 ? 'unpaid' : paid + 0.009 >= total ? 'paid' : 'partially_paid';
+  }
   await db.prepare('UPDATE invoices SET amount_paid = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(paid, status, invoiceId);
 }
 

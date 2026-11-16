@@ -81,7 +81,8 @@ export function BulkResultModal({ result, title, onClose }) {
 
 export function PaymentModal({ invoice, onClose, onSaved }) {
   const toast = useToast();
-  const [f, setF] = useState({ amount: (invoice.total - invoice.amount_paid).toFixed(2), paid_on: new Date().toISOString().slice(0, 10), mode: 'NEFT', reference: '' });
+  const balance = Math.max(0, (Number(invoice.total) || 0) - (Number(invoice.amount_paid) || 0));
+  const [f, setF] = useState({ amount: balance.toFixed(2), paid_on: new Date().toISOString().slice(0, 10), mode: 'NEFT', reference: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const save = async () => {
     try { await api.post(`/invoices/${invoice.id}/payments`, f); toast('Payment recorded'); onSaved(); onClose(); }
